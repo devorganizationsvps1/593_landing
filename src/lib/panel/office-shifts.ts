@@ -114,6 +114,39 @@ export function formatOfficeWeekLabel(todayYmd: string): string {
   return `${from} – ${to}`;
 }
 
+function normTr(value: string): string {
+  return value.trim().toLocaleLowerCase("tr");
+}
+
+function firstName(value: string): string {
+  return normTr(value).split(/\s+/)[0] ?? "";
+}
+
+export function isOmittedFromShift(person: {
+  name: string;
+  email: string;
+}): boolean {
+  const email = normTr(person.email);
+  if (email === "admin@593emarketing.com") return true;
+  if (SHIFT_UI.omitEmails.some((e) => normTr(e) === email)) return true;
+  const name = normTr(person.name);
+  const local = email.split("@")[0] ?? "";
+  return SHIFT_UI.omitPeople.some((raw) => {
+    const n = normTr(raw);
+    return firstName(person.name) === n || name.includes(n) || local.includes(n);
+  });
+}
+
+/** peopleOrder’daki isimler (adın ilk kelimesi); tüm ekip otomatik gelmez. */
+export function isOnShiftRoster(person: { name: string }): boolean {
+  const first = firstName(person.name);
+  const full = normTr(person.name);
+  return SHIFT_UI.peopleOrder.some((raw) => {
+    const n = normTr(raw);
+    return first === n || full === n;
+  });
+}
+
 export async function loadOfficeShiftBoard(opts: {
   todayYmd: string;
   currentUserId: string | null;
@@ -122,11 +155,6 @@ export async function loadOfficeShiftBoard(opts: {
     where: {
       role: { in: ["admin", "team"] },
       viewOnly: false,
-      NOT: {
-        email: {
-          in: ["admin@593emarketing.com", ...SHIFT_UI.omitEmails],
-        },
-      },
     },
     select: {
       id: true,
@@ -145,18 +173,20 @@ export async function loadOfficeShiftBoard(opts: {
     orderBy: [{ name: "asc" }, { email: "asc" }],
   });
 
-  const people: OfficeShiftPerson[] = staff.map((u) => ({
-    id: u.id,
-    name: (u.name ?? "").trim() || u.email,
-    email: u.email,
-    avatarUrl: u.avatarUrl,
-    officeWeekdays: normalizeWeekdays(u.officeWeekdays),
-    teams: u.teamMemberships.map((m) => ({
-      slug: m.team.slug,
-      name: m.team.name,
-      color: m.team.color,
-    })),
-  }));
+  const people: OfficeShiftPerson[] = staff
+    .map((u) => ({
+      id: u.id,
+      name: (u.name ?? "").trim() || u.email,
+      email: u.email,
+      avatarUrl: u.avatarUrl,
+      officeWeekdays: normalizeWeekdays(u.officeWeekdays),
+      teams: u.teamMemberships.map((m) => ({
+        slug: m.team.slug,
+        name: m.team.name,
+        color: m.team.color,
+      })),
+    }))
+    .filter((p) => !isOmittedFromShift(p) && isOnShiftRoster(p));
 
   return {
     today: opts.todayYmd,

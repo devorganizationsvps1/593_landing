@@ -21,13 +21,14 @@ export const SHIFT_UI = {
     chart: true,
   },
 
-  /** Shift tablosunda gizlenen kişiler (Ekip sayfasında kalır). */
+  /** Shift tablosunda gizlenen kişiler (Ekip sayfasında kalır). Ad veya e-posta. */
+  omitPeople: ["Hakan", "Muhammet"],
   omitEmails: [
     "hakan@593emarketing.com",
     "muhammet@593emarketing.com",
   ],
 
-  /** Tablo sırası; yazılmayanlar alta alfabetik eklenir. */
+  /** Shift’te kimler görünür (sıra + allowlist). Ekipteki diğerleri gelmez. */
   peopleOrder: [
     "Numan",
     "Kaan",

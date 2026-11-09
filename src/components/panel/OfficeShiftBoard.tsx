@@ -8,6 +8,8 @@ import { SHIFT_UI } from "@/components/panel/shift-ui";
 import { avatarTone } from "@/components/panel/TeamPlatformIcon";
 import {
   countInOffice,
+  isOmittedFromShift,
+  isOnShiftRoster,
   OFFICE_WEEKDAYS,
   sortShiftPeople,
   toggleWeekday,
@@ -74,10 +76,12 @@ export default function OfficeShiftBoard({ data }: { data: OfficeShiftBoardData 
   const people = useMemo(
     () =>
       sortShiftPeople(
-        data.people.map((p) => ({
-          ...p,
-          officeWeekdays: local[p.id] ?? p.officeWeekdays,
-        })),
+        data.people
+          .filter((p) => !isOmittedFromShift(p) && isOnShiftRoster(p))
+          .map((p) => ({
+            ...p,
+            officeWeekdays: local[p.id] ?? p.officeWeekdays,
+          })),
         ui.peopleOrder,
       ),
     [data.people, local],
