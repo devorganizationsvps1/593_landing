@@ -1220,21 +1220,24 @@ model AdChangeJob {
 }
 
 model AdChangeJobStep {
-  id            String             @id @default(cuid())
-  jobId         String
-  sortOrder     Int
-  kind          String
-  dependsOn     String?
-  status        AdChangeStepStatus @default(pending)
-  request       Json               @default("{}")
-  result        Json               @default("{}")
-  metaObjectIds Json               @default("{}")
-  error         String?
-  startedAt     DateTime?
-  finishedAt    DateTime?
+  id             String             @id @default(cuid())
+  jobId          String
+  sortOrder      Int
+  kind           String
+  /// field:targetId — aynı job içinde tek uygulama.
+  idempotencyKey String?
+  dependsOn      String?
+  status         AdChangeStepStatus @default(pending)
+  request        Json               @default("{}")
+  result         Json               @default("{}")
+  metaObjectIds  Json               @default("{}")
+  error          String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
 
   job AdChangeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
+  @@unique([jobId, idempotencyKey])
   @@index([jobId, sortOrder])
 }
 
