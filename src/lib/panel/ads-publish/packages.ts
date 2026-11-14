@@ -106,6 +106,83 @@ export async function createDraftPackage(opts: {
   return serializeListItem(created);
 }
 
+export async function updateDraftPackage(opts: {
+  actor: AdsPublishActor;
+  packageId: string;
+  title?: string;
+  payload: AdChangePayload;
+}): Promise<AdChangePackageListItem> {
+  const pack = await prisma.adChangePackage.findFirst({
+    where: { id: opts.packageId },
+    include: {
+      tenant: { select: { id: true, name: true, slug: true } },
+    },
+  });
+  if (!pack) throw new Error("Paket bulunamadı");
+  if (pack.status !== "draft" && pack.status !== "rejected") {
+    throw new Error("Yalnızca taslak veya reddedilen paket düzenlenir");
+  }
+
+  const nextVersion = pack.currentVersion + 1;
+  await prisma.adChangePackageVersion.create({
+    data: {
+      packageId: pack.id,
+      version: nextVersion,
+      payload: opts.payload as Prisma.InputJsonValue,
+      createdById: opts.actor.id,
+    },
+  });
+
+  const saved = await prisma.adChangePackage.update({
+    where: { id: pack.id },
+    data: {
+      currentVersion: nextVersion,
+      status: "draft",
+      ...(opts.title !== undefined
+        ? { title: opts.title.trim() || pack.title }
+        : {}),
+    },
+    include: {
+      tenant: { select: { id: true, name: true, slug: true } },
+      createdBy: { select: { name: true, email: true } },
+    },
+  });
+
+  await audit(
+    { user: { id: opts.actor.id, email: opts.actor.email } },
+    {
+      action: "ad_change.update",
+      entity: "ad_change",
+      entityId: pack.id,
+      tenantId: pack.tenantId,
+      summary: `${pack.tenant.name}: v${nextVersion} güncellendi`,
+    },
+  );
+
+  return serializeListItem(saved);
+}
+
+export async function getPackageDetail(packageId: string) {
+  const pack = await prisma.adChangePackage.findFirst({
+    where: { id: packageId },
+    include: {
+      tenant: {
+        select: { id: true, name: true, slug: true, metaAccountId: true },
+      },
+      createdBy: { select: { name: true, email: true } },
+    },
+  });
+  if (!pack) return null;
+  const version = await prisma.adChangePackageVersion.findFirst({
+    where: { packageId: pack.id, version: pack.currentVersion },
+  });
+  return {
+    package: serializeListItem(pack),
+    payload: (version?.payload ?? {}) as AdChangePayload,
+    metaAccountId: pack.tenant.metaAccountId,
+  };
+}
+
 export async function submitForApproval(opts: {
   actor: AdsPublishActor;
   packageId: string;
@@ -168,14 +245,6 @@ export async function decidePackage(opts: {
   });
   if (!version) throw new Error("Paket sürümü bulunamadı");
 
-  const existingJob = await prisma.adChangeJob.findUnique({
-    where: { versionId: version.id },
-    select: { id: true },
-  });
-  if (opts.decision === "approve" && existingJob) {
-    throw new Error("Bu sürüm için yürütme zaten açılmış");
-  }
-
   const nextStatus = opts.decision === "approve" ? "approved" : "rejected";
 
   await prisma.adChangeApproval.create({
@@ -185,26 +254,27 @@ export async function decidePackage(opts: {
       actorId: opts.actor.id,
       actorEmail: opts.actor.email,
       decision: opts.decision,
+      kind: "publish",
       note: (opts.note ?? "").trim(),
     },
   });
-  if (opts.decision === "approve") {
-    await prisma.adChangeJob.create({
-      data: {
-        packageId: pack.id,
-        versionId: version.id,
-        status: "queued",
-      },
-    });
-  }
-  const saved = await prisma.adChangePackage.update({
+
+  // Önce status; job runner applied/failed/dry_run'a taşıyabilir.
+  await prisma.adChangePackage.update({
     where: { id: pack.id },
     data: { status: nextStatus },
-    include: {
-      tenant: { select: { id: true, name: true, slug: true } },
-      createdBy: { select: { name: true, email: true } },
-    },
   });
+
+  // Job yalnızca approve ile — create/save/submit buraya gelmez.
+  if (opts.decision === "approve") {
+    const { enqueueAndRunApprovedJob } = await import(
+      "@/lib/panel/ads-publish/enqueue-approved-job"
+    );
+    await enqueueAndRunApprovedJob({
+      packageId: pack.id,
+      versionId: version.id,
+    });
+  }
 
   await audit(
     { user: { id: opts.actor.id, email: opts.actor.email } },
@@ -218,5 +288,12 @@ export async function decidePackage(opts: {
     },
   );
 
-  return serializeListItem(saved);
+  const latest = await prisma.adChangePackage.findUniqueOrThrow({
+    where: { id: pack.id },
+    include: {
+      tenant: { select: { id: true, name: true, slug: true } },
+      createdBy: { select: { name: true, email: true } },
+    },
+  });
+  return serializeListItem(latest);
 }
