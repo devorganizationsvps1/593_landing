@@ -237,6 +237,8 @@ model Tenant {
   siteVerification  SiteVerification?
   memberships       Membership[]
   metaInsights      MetaInsight[]
+  metaCampaigns     MetaCampaign[]
+  metaAdSets        MetaAdSet[]
   metaAds           MetaAd[]
   metaAdInsights    MetaAdInsight[]
   metaAdsetInsights MetaAdsetInsight[]
@@ -595,6 +597,65 @@ model MetaInsight {
   @@index([tenantId, date])
 }
 
+/// Meta kampanya snapshot (yapı + durum + bütçe). Arşiv/silinmiş hariç sync.
+model MetaCampaign {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  /// Tenant.metaAccountId (act_…) — sahiplik için.
+  metaAccountId       String   @default("")
+  campaignId          String
+  campaignName        String   @default("")
+  /// Ayarlanan durum (ACTIVE / PAUSED / …).
+  status              String   @default("")
+  /// Fiili durum (CAMPAIGN_PAUSED üst düzey etkileri dahil).
+  effectiveStatus     String   @default("")
+  /// Graph minor unit string (kuruş); yoksa null.
+  dailyBudgetMinor    String?
+  lifetimeBudgetMinor String?
+  /// campaign | adset | none — bütçenin durduğu seviye.
+  budgetLevel         String   @default("none")
+  /// daily | lifetime | none
+  budgetKind          String   @default("none")
+  syncedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, campaignId])
+  @@index([tenantId, metaAccountId])
+  @@index([tenantId, status])
+  @@index([tenantId, effectiveStatus])
+}
+
+/// Meta reklam seti snapshot. Arşiv/silinmiş hariç sync.
+model MetaAdSet {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  metaAccountId       String   @default("")
+  adsetId             String
+  adsetName           String   @default("")
+  campaignId          String   @default("")
+  campaignName        String   @default("")
+  status              String   @default("")
+  effectiveStatus     String   @default("")
+  dailyBudgetMinor    String?
+  lifetimeBudgetMinor String?
+  /// daily | lifetime | none (kampanya bütçeliyse genelde none)
+  budgetKind          String   @default("none")
+  syncedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, adsetId])
+  @@index([tenantId, campaignId])
+  @@index([tenantId, metaAccountId])
+  @@index([tenantId, status])
+  @@index([tenantId, effectiveStatus])
+}
+
 /// Meta ad + creative snapshot (refreshed on sync). Thumbnails/links for performance UI.
 model MetaAd {
   id              String   @id @default(cuid())
@@ -624,7 +685,10 @@ model MetaAd {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, adId])
+  @@index([tenantId, campaignId])
+  @@index([tenantId, adsetId])
   @@index([tenantId, effectiveStatus])
+  @@index([tenantId, status])
 }
 
 /// Meta ad-level daily insights (paid). Joined with MetaAd for creative UI.

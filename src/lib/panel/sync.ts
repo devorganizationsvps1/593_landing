@@ -21,6 +21,10 @@ import {
   fetchMetaAdsetInsights,
   fetchMetaBreakdownInsights,
 } from "@/lib/integrations/meta/ads";
+import {
+  fetchMetaAdSetStructure,
+  fetchMetaCampaignStructure,
+} from "@/lib/integrations/meta/structure";
 import { fetchMetaSuccessfulCharges } from "@/lib/integrations/meta/billing";
 import { fetchMetaCampaignInsights } from "@/lib/integrations/meta/insights";
 import { provisionTenantsFromMeta } from "@/lib/integrations/meta/provision";
@@ -297,7 +301,7 @@ export async function runAgencySync(opts?: {
       }
     }
 
-    // --- Meta creatives (thumbnail / link) — önce (hızlı; timeout’tan önce kalsın) ---
+    // --- Meta yapı: kampanya + set (PAUSED dahil; ARCHIVED/DELETED hariç) ---
     if (doMeta && extras && !off.has("meta")) {
       // Eski birleşik ads/ad_daily job’ı UI’da “reduce data” hatası olarak kalıyordu
       await prisma.syncJob.deleteMany({
@@ -308,6 +312,114 @@ export async function runAgencySync(opts?: {
           objective: "ad_daily",
         },
       });
+
+      const metaStructure = await runSynced(
+        {
+          tenantId: tenant.id,
+          provider: "meta",
+          service: "ads",
+          objective: "structure",
+        },
+        async () => {
+          if (!metaAccountId) {
+            throw new Error(
+              "metaAccountId yok — kampanya/set yapısı çekilemedi, 0 yazılmadı.",
+            );
+          }
+          const syncedAt = new Date();
+          const campaigns = await fetchMetaCampaignStructure({ metaAccountId });
+          for (const c of campaigns) {
+            await prisma.metaCampaign.upsert({
+              where: {
+                tenantId_campaignId: {
+                  tenantId: tenant.id,
+                  campaignId: c.campaignId,
+                },
+              },
+              update: {
+                metaAccountId,
+                campaignName: c.campaignName,
+                status: c.status,
+                effectiveStatus: c.effectiveStatus,
+                dailyBudgetMinor: c.dailyBudgetMinor,
+                lifetimeBudgetMinor: c.lifetimeBudgetMinor,
+                budgetLevel: c.budgetLevel,
+                budgetKind: c.budgetKind,
+                syncedAt,
+              },
+              create: {
+                tenantId: tenant.id,
+                metaAccountId,
+                campaignId: c.campaignId,
+                campaignName: c.campaignName,
+                status: c.status,
+                effectiveStatus: c.effectiveStatus,
+                dailyBudgetMinor: c.dailyBudgetMinor,
+                lifetimeBudgetMinor: c.lifetimeBudgetMinor,
+                budgetLevel: c.budgetLevel,
+                budgetKind: c.budgetKind,
+                syncedAt,
+              },
+            });
+          }
+          await prisma.metaCampaign.updateMany({
+            where: {
+              tenantId: tenant.id,
+              campaignId: { notIn: campaigns.map((c) => c.campaignId) },
+              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
+            },
+            data: { effectiveStatus: "DELETED", syncedAt },
+          });
+
+          const adsets = await fetchMetaAdSetStructure({ metaAccountId });
+          for (const a of adsets) {
+            await prisma.metaAdSet.upsert({
+              where: {
+                tenantId_adsetId: { tenantId: tenant.id, adsetId: a.adsetId },
+              },
+              update: {
+                metaAccountId,
+                adsetName: a.adsetName,
+                campaignId: a.campaignId,
+                campaignName: a.campaignName,
+                status: a.status,
+                effectiveStatus: a.effectiveStatus,
+                dailyBudgetMinor: a.dailyBudgetMinor,
+                lifetimeBudgetMinor: a.lifetimeBudgetMinor,
+                budgetKind: a.budgetKind,
+                syncedAt,
+              },
+              create: {
+                tenantId: tenant.id,
+                metaAccountId,
+                adsetId: a.adsetId,
+                adsetName: a.adsetName,
+                campaignId: a.campaignId,
+                campaignName: a.campaignName,
+                status: a.status,
+                effectiveStatus: a.effectiveStatus,
+                dailyBudgetMinor: a.dailyBudgetMinor,
+                lifetimeBudgetMinor: a.lifetimeBudgetMinor,
+                budgetKind: a.budgetKind,
+                syncedAt,
+              },
+            });
+          }
+          await prisma.metaAdSet.updateMany({
+            where: {
+              tenantId: tenant.id,
+              adsetId: { notIn: adsets.map((a) => a.adsetId) },
+              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
+            },
+            data: { effectiveStatus: "DELETED", syncedAt },
+          });
+
+          return { campaigns: campaigns.length, adsets: adsets.length };
+        },
+      );
+      services.metaStructure = metaStructure.ok
+        ? { ok: true }
+        : { ok: false, error: metaStructure.error };
 
       const metaCreatives = await runSynced(
         {
@@ -327,6 +439,21 @@ export async function runAgencySync(opts?: {
           });
           const syncedAt = new Date();
           for (const ad of creatives) {
+            const prev = await prisma.metaAd.findUnique({
+              where: {
+                tenantId_adId: { tenantId: tenant.id, adId: ad.adId },
+              },
+              select: {
+                thumbnailUrl: true,
+                imageUrl: true,
+                permalinkUrl: true,
+                linkUrl: true,
+                urlTags: true,
+                objectType: true,
+                creativeId: true,
+              },
+            });
+            const keepMedia = !(ad.thumbnailUrl || ad.imageUrl);
             await prisma.metaAd.upsert({
               where: {
                 tenantId_adId: { tenantId: tenant.id, adId: ad.adId },
@@ -339,13 +466,15 @@ export async function runAgencySync(opts?: {
                 campaignName: ad.campaignName,
                 status: ad.status,
                 effectiveStatus: ad.effectiveStatus,
-                creativeId: ad.creativeId,
-                thumbnailUrl: ad.thumbnailUrl,
-                imageUrl: ad.imageUrl,
-                permalinkUrl: ad.permalinkUrl,
-                linkUrl: ad.linkUrl,
-                urlTags: ad.urlTags,
-                objectType: ad.objectType,
+                creativeId: ad.creativeId || prev?.creativeId || "",
+                thumbnailUrl: keepMedia
+                  ? prev?.thumbnailUrl
+                  : ad.thumbnailUrl,
+                imageUrl: keepMedia ? prev?.imageUrl : ad.imageUrl,
+                permalinkUrl: ad.permalinkUrl || prev?.permalinkUrl || null,
+                linkUrl: ad.linkUrl || prev?.linkUrl || null,
+                urlTags: ad.urlTags ?? prev?.urlTags ?? null,
+                objectType: ad.objectType || prev?.objectType || null,
                 syncedAt,
               },
               create: {
@@ -369,17 +498,14 @@ export async function runAgencySync(opts?: {
               },
             });
           }
-          // Yalnızca ACTIVE çekiliyor: dönmeyen satır artık yayında değil.
-          // Hata durumunda fetch fırlatır, bu yüzden boş liste = hiç aktif reklam
-          // yok (hepsi durdurulduysa eski kartlar ACTIVE kalmasın). Satır
-          // silinmez — bütçe ekranı kampanyanın reklamı olup olmadığına bakıyor.
+          // Sync kapsamı dışında kalan (silinmiş/arşiv) satırlar — satır silinmez.
           await prisma.metaAd.updateMany({
             where: {
               tenantId: tenant.id,
               adId: { notIn: creatives.map((ad) => ad.adId) },
-              effectiveStatus: "ACTIVE",
+              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
             },
-            data: { effectiveStatus: "INACTIVE", syncedAt },
+            data: { effectiveStatus: "DELETED", syncedAt },
           });
           return { creatives: creatives.length };
         },

@@ -174,10 +174,14 @@ export async function fetchMetaAdsWithCreatives(opts: {
     "creative{id}",
   ].join(",");
 
-  // Yalnızca yayındaki reklamlar — durdurulmuş/reddedilmiş binlerce reklamın
-  // kreatifini çekmek senkronu yavaşlatıyordu ve panelde zaten gösterilmiyor.
+  // Yapı + durum: arşiv/silinmiş hariç (PAUSED dahil). Kreatif medya yalnızca
+  // ACTIVE için çekilir — yükü sınırlamak için.
   const filtering = JSON.stringify([
-    { field: "effective_status", operator: "IN", value: ["ACTIVE"] },
+    {
+      field: "effective_status",
+      operator: "NOT_IN",
+      value: ["DELETED", "ARCHIVED"],
+    },
   ]);
 
   type Listed = {
@@ -224,7 +228,15 @@ export async function fetchMetaAdsWithCreatives(opts: {
   }
 
   const creativeIds = [
-    ...new Set(listed.map((x) => x.creativeId).filter(Boolean)),
+    ...new Set(
+      listed
+        .filter((x) => {
+          const eff = (x.ad.effective_status || x.ad.status || "").toUpperCase();
+          return eff === "ACTIVE";
+        })
+        .map((x) => x.creativeId)
+        .filter(Boolean),
+    ),
   ];
   const creativeById = new Map<string, GraphCreative>();
 
