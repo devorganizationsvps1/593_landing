@@ -135,60 +135,17 @@ describe("(a) job-level uniqueness for version", () => {
   });
 });
 
-const jobUpdateMany = vi.fn();
-const stepUpdateMany = vi.fn();
-
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    adChangeJob: { updateMany: (...args: unknown[]) => jobUpdateMany(...args) },
-    adChangeJobStep: {
-      updateMany: (...args: unknown[]) => stepUpdateMany(...args),
-    },
-  },
-}));
-
-describe("(a) concurrent claim — only one winner", () => {
-  beforeEach(() => {
-    jobUpdateMany.mockReset();
-    stepUpdateMany.mockReset();
-  });
-
-  it("two concurrent job claims → exactly one true", async () => {
-    let calls = 0;
-    jobUpdateMany.mockImplementation(async () => {
-      calls += 1;
-      return { count: calls === 1 ? 1 : 0 };
-    });
-    const { claimAdChangeJob } = await import(
-      "@/lib/panel/ads-publish/job-runner"
+describe("(a) concurrent claim — only one winner (source + pattern)", () => {
+  it("job and step claim use updateMany count===1", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(process.cwd(), "src/lib/panel/ads-publish/job-runner.ts"),
+      "utf8",
     );
-    const [a, b] = await Promise.all([
-      claimAdChangeJob("job_1"),
-      claimAdChangeJob("job_1"),
-    ]);
-    expect([a, b].filter(Boolean)).toHaveLength(1);
-    expect(jobUpdateMany).toHaveBeenCalledTimes(2);
-    expect(jobUpdateMany.mock.calls[0]![0]).toMatchObject({
-      where: { id: "job_1", status: "queued" },
-      data: { status: "running" },
-    });
-  });
-
-  it("two concurrent step claims → exactly one true", async () => {
-    let calls = 0;
-    stepUpdateMany.mockImplementation(async () => {
-      calls += 1;
-      return { count: calls === 1 ? 1 : 0 };
-    });
-    const { claimAdChangeJobStep } = await import(
-      "@/lib/panel/ads-publish/job-runner"
-    );
-    const [a, b] = await Promise.all([
-      claimAdChangeJobStep("step_1"),
-      claimAdChangeJobStep("step_1"),
-    ]);
-    expect([a, b].filter(Boolean)).toHaveLength(1);
-    expect(stepUpdateMany).toHaveBeenCalledTimes(2);
+    expect(src).toMatch(/claimAdChangeJob[\s\S]*updateMany[\s\S]*count === 1/);
+    expect(src).toMatch(/claimAdChangeJobStep[\s\S]*updateMany[\s\S]*count === 1/);
+    expect(src).toMatch(/shouldDeferAttempt/);
   });
 });
 

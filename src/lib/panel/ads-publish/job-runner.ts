@@ -40,6 +40,15 @@ import {
 } from "@/lib/panel/ads-publish/budget-check";
 import { packageBudgetToMetaMinor } from "@/lib/panel/ads-publish/budget-units";
 import { mapStepStatusForAggregate } from "@/lib/panel/ads-publish/job-status-labels";
+import { assertTargetOwnership } from "@/lib/panel/ads-publish/ownership";
+import {
+  nextAttemptStateAfterFailure,
+  readAttemptState,
+  shouldDeferAttempt,
+} from "@/lib/panel/ads-publish/step-retry";
+import { createPanelNotice } from "@/lib/panel/panel-notices";
+import { audit } from "@/lib/panel/audit";
+import { MetaGraphError } from "@/lib/integrations/meta/graph";
 
 function asPayload(raw: unknown): AdChangePayload {
   return (raw ?? {}) as AdChangePayload;
@@ -70,6 +79,12 @@ export async function claimAdChangeJob(jobId: string): Promise<boolean> {
 }
 
 export async function claimAdChangeJobStep(stepId: string): Promise<boolean> {
+  const step = await prisma.adChangeJobStep.findUnique({
+    where: { id: stepId },
+    select: { id: true, status: true, result: true },
+  });
+  if (!step || step.status !== "pending") return false;
+  if (shouldDeferAttempt(step.result)) return false;
   const result = await prisma.adChangeJobStep.updateMany({
     where: { id: stepId, status: "pending" },
     data: { status: "running", startedAt: new Date() },
@@ -137,6 +152,10 @@ export async function runAdChangeJob(
   });
 
   try {
+    await assertTargetOwnership({
+      tenantId: job.package.tenantId,
+      payload,
+    });
     await assertStatusNotStale(payload);
     await assertLiveBudgetBeforeApply(payload);
 
@@ -275,6 +294,58 @@ export async function runAdChangeJob(
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const prev = readAttemptState(step.result);
+        const retryable =
+          err instanceof MetaGraphError || /rate limit|timeout|ECONNRESET/i.test(message);
+        if (retryable) {
+          const next = nextAttemptStateAfterFailure({
+            previous: prev,
+            err,
+          });
+          if (!next.exhausted) {
+            await prisma.adChangeJobStep.update({
+              where: { id: step.id },
+              data: {
+                status: "pending",
+                startedAt: null,
+                error: message,
+                result: {
+                  ...((step.result as object) ?? {}),
+                  attempts: next.state.attempts,
+                  nextAttemptAt: next.state.nextAttemptAt,
+                  lastError: message,
+                  waitMs: next.waitMs,
+                },
+              },
+            });
+            continue;
+          }
+          await prisma.adChangeJobStep.update({
+            where: { id: step.id },
+            data: {
+              status: "failed",
+              error: message,
+              result: {
+                ...((step.result as object) ?? {}),
+                attempts: next.state.attempts,
+                exhausted: true,
+              },
+              finishedAt: new Date(),
+            },
+          });
+          await notifyStepRetriesExhausted({
+            jobId: job.id,
+            packageId: job.packageId,
+            packageTitle: job.package.title,
+            tenantId: job.package.tenantId,
+            tenantSlug: job.package.tenant.slug,
+            userId: job.package.createdById,
+            kind: step.kind,
+            attempts: next.state.attempts,
+            message,
+          });
+          throw err;
+        }
         await prisma.adChangeJobStep.update({
           where: { id: step.id },
           data: {
@@ -289,8 +360,21 @@ export async function runAdChangeJob(
 
     const finalSteps = await prisma.adChangeJobStep.findMany({
       where: { jobId: job.id },
-      select: { status: true },
+      select: { status: true, result: true },
     });
+    const waitingRetry = finalSteps.some(
+      (s) => s.status === "pending" || s.status === "running",
+    );
+    if (waitingRetry) {
+      // Artan bekleme / takılı adım — job running kalsın; zamanlayıcı tekrar dener
+      await prisma.adChangeJob.update({
+        where: { id: job.id },
+        data: { status: "running", finishedAt: null },
+      });
+      console.info("[ad_change.job]", job.id, "waiting_retry", job.package.title);
+      return;
+    }
+
     const mapped = finalSteps.map((s) => mapStepStatusForAggregate(s.status));
     // legacy_succeeded asla applied sayılmaz → partial
     const forAgg = mapped.map((s) =>
@@ -425,6 +509,42 @@ async function recoverStuckSteps(
     throw new StuckStaleError(
       `Takılı adım bayat: Meta ne önerilen ne başlangıç değerde (job=${jobId}, package=${packageId}). Yeniden onaya sunun.`,
     );
+  }
+}
+
+async function notifyStepRetriesExhausted(opts: {
+  jobId: string;
+  packageId: string;
+  packageTitle: string;
+  tenantId: string;
+  tenantSlug: string;
+  userId: string | null;
+  kind: string;
+  attempts: number;
+  message: string;
+}): Promise<void> {
+  await audit(
+    opts.userId ? { user: { id: opts.userId } } : null,
+    {
+      action: "ad_change.step_retries_exhausted",
+      entity: "ad_change",
+      entityId: opts.packageId,
+      tenantId: opts.tenantId,
+      summary: `${opts.packageTitle}: ${opts.kind} deneme limiti (${opts.attempts}) — ${opts.message}`,
+    },
+  );
+  if (!opts.userId) return;
+  try {
+    await createPanelNotice({
+      userId: opts.userId,
+      tenantId: opts.tenantId,
+      kind: "ad_change.step_retries_exhausted",
+      title: `Meta adım başarısız: ${opts.packageTitle}`,
+      body: `${opts.kind} — ${opts.attempts} deneme sonrası: ${opts.message}`,
+      href: `/meta-yayin?brand=${encodeURIComponent(opts.tenantSlug)}`,
+    });
+  } catch (err) {
+    console.warn("[ad_change.notice]", err);
   }
 }
 

@@ -8,6 +8,11 @@ import type {
 } from "@/lib/panel/ads-publish/types";
 import { assertPayloadBudgetLimits } from "@/lib/panel/ads-publish/budget-check";
 import { isStepRunningStale } from "@/lib/panel/ads-publish/step-recovery";
+import { assertTargetOwnership } from "@/lib/panel/ads-publish/ownership";
+import {
+  assertCanApprovePackage,
+  assertCanEditTenant,
+} from "@/lib/panel/ads-publish/authz";
 
 function outcomeNoteFromJobs(
   jobs?: Array<{
@@ -126,10 +131,15 @@ export async function createDraftPackage(opts: {
 }): Promise<AdChangePackageListItem> {
   const tenant = await prisma.tenant.findFirst({
     where: { id: opts.tenantId },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, metaAccountId: true },
   });
   if (!tenant) throw new Error("Marka bulunamadı");
+  await assertCanEditTenant(opts.actor, tenant.id);
+  if (!opts.payload.target.adAccountId?.trim()) {
+    opts.payload.target.adAccountId = tenant.metaAccountId;
+  }
   assertPayloadBudgetLimits(opts.payload);
+  await assertTargetOwnership({ tenantId: tenant.id, payload: opts.payload });
 
   const created = await prisma.adChangePackage.create({
     data: {
@@ -181,10 +191,18 @@ export async function updateDraftPackage(opts: {
     },
   });
   if (!pack) throw new Error("Paket bulunamadı");
-  if (pack.status !== "draft" && pack.status !== "rejected") {
-    throw new Error("Yalnızca taslak veya reddedilen paket düzenlenir");
+  const editable = ["draft", "rejected", "pending", "approved"] as const;
+  if (!editable.includes(pack.status as (typeof editable)[number])) {
+    throw new Error(
+      "Uygulama/sonuç durumundaki paket düzenlenemez; yeni paket açın",
+    );
   }
+  await assertCanEditTenant(opts.actor, pack.tenantId);
   assertPayloadBudgetLimits(opts.payload);
+  await assertTargetOwnership({
+    tenantId: pack.tenantId,
+    payload: opts.payload,
+  });
 
   const nextVersion = pack.currentVersion + 1;
   await prisma.adChangePackageVersion.create({
@@ -196,11 +214,19 @@ export async function updateDraftPackage(opts: {
     },
   });
 
+  // Onaydan / onaya gönderildikten sonra düzenleme → onay geçersiz, yeniden onay
+  const nextStatus =
+    pack.status === "pending" || pack.status === "approved"
+      ? "draft"
+      : pack.status === "rejected"
+        ? "draft"
+        : "draft";
+
   const saved = await prisma.adChangePackage.update({
     where: { id: pack.id },
     data: {
       currentVersion: nextVersion,
-      status: "draft",
+      status: nextStatus,
       ...(opts.title !== undefined
         ? { title: opts.title.trim() || pack.title }
         : {}),
@@ -258,6 +284,7 @@ export async function submitForApproval(opts: {
     },
   });
   if (!pack) throw new Error("Paket bulunamadı");
+  await assertCanEditTenant(opts.actor, pack.tenantId);
   if (pack.status !== "draft" && pack.status !== "rejected") {
     throw new Error("Yalnızca taslak veya reddedilen paket onaya gönderilir");
   }
@@ -300,6 +327,12 @@ export async function decidePackage(opts: {
   if (!pack) throw new Error("Paket bulunamadı");
   if (pack.status !== "pending") {
     throw new Error("Yalnızca onay bekleyen paket karara bağlanır");
+  }
+  if (opts.decision === "approve") {
+    await assertCanApprovePackage({
+      actor: opts.actor,
+      packageId: pack.id,
+    });
   }
 
   const version = await prisma.adChangePackageVersion.findFirst({

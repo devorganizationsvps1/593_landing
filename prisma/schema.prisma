@@ -262,6 +262,7 @@ model Tenant {
   notificationLogs  NotificationLog[]
   meetings          Meeting[]
   adChangePackages  AdChangePackage[]
+  panelNotices      PanelNotice[]
 
   @@index([ownerId])
 }
@@ -418,6 +419,7 @@ model User {
   adChangePackagesCreated  AdChangePackage[]        @relation("AdChangePackageCreator")
   adChangeVersionsCreated  AdChangePackageVersion[] @relation("AdChangeVersionCreator")
   adChangeApprovals        AdChangeApproval[]
+  panelNotices             PanelNotice[]
 }
 
 /// Ajans içi sabit ekip (src/lib/panel/teams.ts). Üye çoka-çok (TeamMember).
@@ -1266,6 +1268,25 @@ model AdChangeJobStep {
 
   @@unique([jobId, idempotencyKey])
   @@index([jobId, sortOrder])
+}
+
+/// Panel içi bildirim (görev / onay / yayın sonucu).
+model PanelNotice {
+  id        String    @id @default(cuid())
+  userId    String
+  tenantId  String?
+  kind      String
+  title     String
+  body      String    @default("")
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 /// Panel genelinde çalışma zamanı ayarı (ör. whatsapp.enabled).
