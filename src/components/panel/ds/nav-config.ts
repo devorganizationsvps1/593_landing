@@ -27,7 +27,8 @@ export const STAFF_NAV_LINKS: PanelNavLink[] = [
   { href: "/toplantilar", label: "Toplantılar" },
   { href: "/takvim", label: "Takvim" },
   { href: "/ekip", label: "Ekip" },
-  { href: "/performans", label: "Performans" },
+  // /performans ve /brands/.../meta-analiz — prod şemasında Creative*/AdAnalysis*
+  // yok; dağıtıma alınana kadar menüde tutma.
   { href: "/bildirimler", label: "Bildirimler" },
   { href: "/audit", label: "İşlem kaydı" },
   { href: "/oneriler", label: "Öneriler" },
