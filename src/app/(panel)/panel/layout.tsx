@@ -14,6 +14,8 @@ import { prisma } from "@/lib/db";
 import { isStaffRole } from "@/lib/panel/host";
 import { resolvePanelTenant } from "@/lib/panel/data";
 import { loginHref, sanitizeCallbackPath } from "@/lib/panel/auth-nav";
+import { canAccessAdsPublish } from "@/lib/panel/ads-publish/access";
+import { can } from "@/lib/panel/permissions";
 
 const VIEW_ONLY_PATHS = ["/takvim", "/board"];
 
@@ -78,6 +80,14 @@ export default async function PanelLayout({
       redirect("/takvim");
     }
 
+    const self = await prisma.user.findFirst({
+      where: session.user.email
+        ? { email: session.user.email }
+        : { id: session.user.id ?? "" },
+      select: { name: true, email: true, role: true },
+    });
+    const adsPublish = canAccessAdsPublish(self);
+
     const staffOk =
       browserPath === "/" ||
       browserPath === "/brands" ||
@@ -85,10 +95,18 @@ export default async function PanelLayout({
       browserPath === "/board" ||
       browserPath.startsWith("/board/") ||
       browserPath === "/kampanyalar" ||
+      ((browserPath === "/meta-yayin" ||
+        browserPath.startsWith("/meta-yayin/")) &&
+        adsPublish) ||
+      ((browserPath === "/google-analiz" ||
+        browserPath.startsWith("/google-analiz/")) &&
+        adsPublish) ||
       browserPath === "/ekip" ||
       browserPath.startsWith("/ekip/") ||
       browserPath === "/vardiya" ||
       browserPath.startsWith("/vardiya/") ||
+      browserPath === "/performans" ||
+      browserPath.startsWith("/performans/") ||
       browserPath === "/toplantilar" ||
       browserPath.startsWith("/toplantilar/") ||
       browserPath === "/takvim" ||
@@ -114,9 +132,28 @@ export default async function PanelLayout({
             nav={
               viewOnly
                 ? STAFF_NAV_LINKS.filter((l) => VIEW_ONLY_PATHS.includes(l.href))
-                : STAFF_NAV_LINKS
+                : STAFF_NAV_LINKS.filter((l) => {
+                    if (l.href === "/performans") {
+                      return (
+                        can(session.user.role, "performance.view") ||
+                        can(session.user.role, "performance.self")
+                      );
+                    }
+                    if (
+                      l.href === "/meta-yayin" ||
+                      l.href === "/google-analiz"
+                    ) {
+                      return adsPublish;
+                    }
+                    return true;
+                  })
             }
-            wide={browserPath === "/takvim" || browserPath === "/vardiya"}
+            wide={
+              browserPath === "/takvim" ||
+              browserPath === "/vardiya" ||
+              browserPath === "/meta-yayin" ||
+              browserPath === "/google-analiz"
+            }
             userEmail={session.user.email ?? ""}
             userRoleLabel={viewOnly ? "görüntüleyici" : session.user.role}
           >

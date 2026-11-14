@@ -22,6 +22,7 @@ const ENTITY_OPTIONS = [
   { value: "alert", label: "Uyarılar" },
   { value: "backup", label: "Yedekler" },
   { value: "office_shift", label: "Shift" },
+  { value: "ad_change", label: "Reklam yayını" },
 ];
 
 type Props = {

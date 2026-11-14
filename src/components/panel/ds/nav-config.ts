@@ -22,9 +22,12 @@ export const STAFF_NAV_LINKS: PanelNavLink[] = [
   { href: "/brands", label: "Markalar" },
   { href: "/board", label: "Durum" },
   { href: "/kampanyalar", label: "Kampanyalar" },
+  { href: "/meta-yayin", label: "Meta yayın" },
+  { href: "/google-analiz", label: "Google analiz" },
   { href: "/toplantilar", label: "Toplantılar" },
   { href: "/takvim", label: "Takvim" },
   { href: "/ekip", label: "Ekip" },
+  { href: "/performans", label: "Performans" },
   { href: "/bildirimler", label: "Bildirimler" },
   { href: "/audit", label: "İşlem kaydı" },
   { href: "/oneriler", label: "Öneriler" },
@@ -54,10 +57,13 @@ export function staffPageTitle(rawPath: string): string {
   const path = stripPanelPrefix(rawPath);
   if (matches(path, "/board")) return "Durum tablosu";
   if (matches(path, "/kampanyalar")) return "Aktif kampanyalar";
+  if (matches(path, "/meta-yayin")) return "Meta yayın";
+  if (matches(path, "/google-analiz")) return "Google analiz";
   if (matches(path, "/toplantilar")) return "Toplantılar";
   if (matches(path, "/takvim")) return "İçerik takvimi";
   if (matches(path, "/ekip")) return "Ekip";
   if (matches(path, "/vardiya")) return "Shift";
+  if (matches(path, "/performans")) return "Performans";
   if (matches(path, "/bildirimler")) return "Bildirimler";
   if (matches(path, "/settings")) return "Ayarlar";
   if (matches(path, "/oneriler")) return "Öneri kutusu";

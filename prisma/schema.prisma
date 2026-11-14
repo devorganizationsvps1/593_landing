@@ -74,6 +74,51 @@ enum OfficeShiftKind {
   off
 }
 
+enum AdChangePlatform {
+  meta
+  google
+}
+
+enum AdChangeSource {
+  manual
+  analysis
+  scheduled
+}
+
+enum AdChangePackageStatus {
+  draft
+  pending
+  rejected
+  approved
+  applying
+  applied
+  failed
+  superseded
+}
+
+enum AdChangeDecision {
+  approve
+  reject
+}
+
+enum AdChangeJobStatus {
+  queued
+  running
+  waiting
+  succeeded
+  failed
+  review
+}
+
+enum AdChangeStepStatus {
+  pending
+  running
+  succeeded
+  skipped
+  failed
+  waiting
+}
+
 /// Marka notu türü — toplantı isteği "Göreve çevir" ile panoya düşer.
 enum BrandNoteKind {
   general
@@ -189,6 +234,7 @@ model Tenant {
   reports           BrandReport[]
   notificationLogs  NotificationLog[]
   meetings          Meeting[]
+  adChangePackages  AdChangePackage[]
 
   @@index([ownerId])
 }
@@ -342,6 +388,9 @@ model User {
   backups            Backup[]            @relation("BackupCreator")
   officeShifts         OfficeShift[]
   officeShiftsUpdated  OfficeShift[]     @relation("OfficeShiftEditor")
+  adChangePackagesCreated  AdChangePackage[]        @relation("AdChangePackageCreator")
+  adChangeVersionsCreated  AdChangePackageVersion[] @relation("AdChangeVersionCreator")
+  adChangeApprovals        AdChangeApproval[]
 }
 
 /// Ajans içi sabit ekip (src/lib/panel/teams.ts). Üye çoka-çok (TeamMember).
@@ -1091,6 +1140,102 @@ model OfficeShift {
 
   @@unique([userId, date])
   @@index([date])
+}
+
+/// Meta/Google reklam değişiklik paketi — analiz ve manuel düzenleme aynı yapı.
+model AdChangePackage {
+  id             String                @id @default(cuid())
+  tenantId       String
+  platform       AdChangePlatform
+  source         AdChangeSource        @default(manual)
+  status         AdChangePackageStatus @default(draft)
+  title          String                @default("")
+  currentVersion Int                   @default(1)
+  createdById    String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  tenant    Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?                    @relation("AdChangePackageCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  versions  AdChangePackageVersion[]
+  approvals AdChangeApproval[]
+  jobs      AdChangeJob[]
+
+  @@index([status, updatedAt])
+  @@index([tenantId, platform, updatedAt])
+}
+
+model AdChangePackageVersion {
+  id          String   @id @default(cuid())
+  packageId   String
+  version     Int
+  /// target, rationale, changes, plan, media
+  payload     Json     @default("{}")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  package   AdChangePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("AdChangeVersionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvals AdChangeApproval[]
+  jobs      AdChangeJob[]
+
+  @@unique([packageId, version])
+}
+
+model AdChangeApproval {
+  id         String            @id @default(cuid())
+  packageId  String
+  versionId  String
+  actorId    String?
+  actorEmail String?
+  decision   AdChangeDecision
+  note       String            @default("")
+  createdAt  DateTime          @default(now())
+
+  package AdChangePackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  version AdChangePackageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  actor   User?                  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([packageId, createdAt])
+  @@index([versionId])
+}
+
+/// Onaylanan sürüm başına tek yürütme.
+model AdChangeJob {
+  id         String            @id @default(cuid())
+  packageId  String
+  versionId  String            @unique
+  status     AdChangeJobStatus @default(queued)
+  lastError  String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  package AdChangePackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  version AdChangePackageVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  steps   AdChangeJobStep[]
+
+  @@index([status, createdAt])
+}
+
+model AdChangeJobStep {
+  id            String             @id @default(cuid())
+  jobId         String
+  sortOrder     Int
+  kind          String
+  dependsOn     String?
+  status        AdChangeStepStatus @default(pending)
+  request       Json               @default("{}")
+  result        Json               @default("{}")
+  metaObjectIds Json               @default("{}")
+  error         String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  job AdChangeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, sortOrder])
 }
 
 /// Panel genelinde çalışma zamanı ayarı (ör. whatsapp.enabled).
