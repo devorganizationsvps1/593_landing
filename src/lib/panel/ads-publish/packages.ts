@@ -7,6 +7,22 @@ import type {
   AdChangePayload,
 } from "@/lib/panel/ads-publish/types";
 
+function outcomeNoteFromJobs(
+  jobs?: Array<{
+    steps: Array<{ result: unknown }>;
+  }>,
+): string | null {
+  const latest = jobs?.[0];
+  if (!latest) return null;
+  const labels: string[] = [];
+  for (const step of latest.steps) {
+    const r = (step.result ?? {}) as { reasonLabel?: string };
+    if (r.reasonLabel) labels.push(r.reasonLabel);
+  }
+  if (!labels.length) return null;
+  return [...new Set(labels)].join(" · ");
+}
+
 function serializeListItem(row: {
   id: string;
   title: string;
@@ -18,6 +34,7 @@ function serializeListItem(row: {
   updatedAt: Date;
   tenant: { id: string; name: string; slug: string };
   createdBy: { name: string | null; email: string } | null;
+  jobs?: Array<{ steps: Array<{ result: unknown }> }>;
 }): AdChangePackageListItem {
   return {
     id: row.id,
@@ -34,6 +51,7 @@ function serializeListItem(row: {
     createdByName: row.createdBy
       ? (row.createdBy.name ?? "").trim() || row.createdBy.email
       : null,
+    outcomeNote: outcomeNoteFromJobs(row.jobs),
   };
 }
 
@@ -49,6 +67,13 @@ export async function listAdChangePackages(opts?: {
     include: {
       tenant: { select: { id: true, name: true, slug: true } },
       createdBy: { select: { name: true, email: true } },
+      jobs: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          steps: { orderBy: { sortOrder: "asc" }, select: { result: true } },
+        },
+      },
     },
     orderBy: { updatedAt: "desc" },
     take: 200,
@@ -254,7 +279,6 @@ export async function decidePackage(opts: {
       actorId: opts.actor.id,
       actorEmail: opts.actor.email,
       decision: opts.decision,
-      kind: "publish",
       note: (opts.note ?? "").trim(),
     },
   });

@@ -47,12 +47,20 @@ export type AdChangeMedia = {
   url?: string;
 };
 
+/** Durum panosu / içerik takvimi bağlantısı. */
+export type AdChangeSourceLink = {
+  boardCardId?: string;
+  contentPostId?: string;
+  cardTitle?: string;
+};
+
 export type AdChangePayload = {
   target: AdChangeTarget;
   rationale: AdChangeRationale;
   changes: AdChangeField[];
   plan: AdChangePlanStep[];
   media: AdChangeMedia[];
+  source?: AdChangeSourceLink;
 };
 
 export const AD_CHANGE_STATUS_LABEL: Record<AdChangePackageStatus, string> = {
@@ -61,7 +69,10 @@ export const AD_CHANGE_STATUS_LABEL: Record<AdChangePackageStatus, string> = {
   rejected: "Reddedildi",
   approved: "Onaylandı",
   applying: "Uygulanıyor",
-  applied: "Uygulandı",
+  applied: "Uygulandı (Meta)",
+  simulated: "Simüle (yazılmadı)",
+  partial: "Kısmi sonuç",
+  skipped: "Atlandı",
   failed: "Hata",
   superseded: "Eski sürüm",
 };
@@ -83,4 +94,6 @@ export type AdChangePackageListItem = {
   createdAt: string;
   updatedAt: string;
   createdByName: string | null;
+  /** Simüle/atlanan adımların neden özeti (ekranda). */
+  outcomeNote?: string | null;
 };

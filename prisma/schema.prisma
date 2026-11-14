@@ -92,6 +92,12 @@ enum AdChangePackageStatus {
   approved
   applying
   applied
+  /// Tüm adımlar simüle (Graph yazılmadı).
+  simulated
+  /// Karışık adım sonuçları (applied + simulated/skipped vb.).
+  partial
+  /// Hiçbir adım uygulanmadı / simüle edilmedi (hepsi skipped).
+  skipped
   failed
   superseded
 }
@@ -105,6 +111,15 @@ enum AdChangeJobStatus {
   queued
   running
   waiting
+  /// Gerçek Graph yazımı tamamlandı.
+  applied
+  /// Dry-run / kapı eksik — yazılmadı.
+  simulated
+  /// Karışık adım sonuçları.
+  partial
+  /// Tüm adımlar atlandı.
+  skipped
+  /// Eski kayıtlar (yazma kapalıyken yanlışlıkla kullanıldı); yeni yazılmaz.
   succeeded
   failed
   review
@@ -113,6 +128,11 @@ enum AdChangeJobStatus {
 enum AdChangeStepStatus {
   pending
   running
+  /// Gerçek Graph yazımı.
+  applied
+  /// Kapı eksik; Graph çağrılmadı.
+  simulated
+  /// Eski kayıtlar; yeni yazılmaz.
   succeeded
   skipped
   failed
@@ -201,6 +221,13 @@ model Tenant {
   /// Otomatik PDF/e-posta rapor sıklığı (alıcılar: reportEmails, yoksa müşteri kullanıcıları).
   reportFrequency      ReportFrequency @default(none)
   reportEmails         String[]        @default([])
+  /// Meta yazma: tenant kapısı (varsayılan kapalı). Global META_ADS_WRITE + kademe de gerekir.
+  metaAdsWriteEnabled  Boolean         @default(false)
+  /// K1–K4 kademe bayrakları (varsayılan kapalı) → sunucu kind izin listesi.
+  metaAdsWriteTierK1   Boolean         @default(false)
+  metaAdsWriteTierK2   Boolean         @default(false)
+  metaAdsWriteTierK3   Boolean         @default(false)
+  metaAdsWriteTierK4   Boolean         @default(false)
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 

@@ -106,7 +106,8 @@ describe("(a) claim semantics (documented)", () => {
     expect(src).toMatch(/status:\s*"pending"/);
     expect(src).toMatch(/count === 1/);
     expect(src).not.toMatch(/deferred:\s*true/);
-    expect(src).toMatch(/kind_not_in_allowlist/);
+    expect(src).toMatch(/decideStepWrite/);
+    expect(src).toMatch(/status:\s*"simulated"/);
   });
 });
 
