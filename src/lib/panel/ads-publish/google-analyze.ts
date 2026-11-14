@@ -151,6 +151,7 @@ export async function listMetaPublishBrands() {
       slug: true,
       name: true,
       metaAccountId: true,
+      currency: true,
       disabledIntegrations: true,
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -162,5 +163,6 @@ export async function listMetaPublishBrands() {
       slug: t.slug,
       name: t.name,
       metaAccountId: t.metaAccountId,
+      currency: (t.currency || "TRY").toUpperCase(),
     }));
 }

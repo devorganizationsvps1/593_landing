@@ -352,6 +352,14 @@ export async function decidePackage(opts: {
     if (!preview) {
       throw new Error("Önizleme üretilemedi; paket onaylanamaz");
     }
+    if (!preview.liveReadOk) {
+      const when = preview.lastSyncedAt
+        ? new Date(preview.lastSyncedAt).toLocaleString("tr-TR")
+        : "bilinmiyor";
+      throw new Error(
+        `Canlı değer okunamadı, son senkronizasyon: ${when}. Onay engellendi.`,
+      );
+    }
     if (!opts.previewFingerprint?.trim()) {
       throw new Error("Önizleme olmadan onaylanamaz");
     }

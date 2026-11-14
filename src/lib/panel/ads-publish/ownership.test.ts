@@ -2,21 +2,25 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const findTenant = vi.fn();
 const findAd = vi.fn();
-const findAdsetInsight = vi.fn();
-const findInsight = vi.fn();
+const findAdSet = vi.fn();
+const findCampaign = vi.fn();
 const useMock = vi.fn(() => false);
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     tenant: { findFirst: (...a: unknown[]) => findTenant(...a) },
     metaAd: { findFirst: (...a: unknown[]) => findAd(...a) },
-    metaAdsetInsight: { findFirst: (...a: unknown[]) => findAdsetInsight(...a) },
-    metaInsight: { findFirst: (...a: unknown[]) => findInsight(...a) },
+    metaAdSet: { findFirst: (...a: unknown[]) => findAdSet(...a) },
+    metaCampaign: { findFirst: (...a: unknown[]) => findCampaign(...a) },
   },
 }));
 
 vi.mock("@/lib/integrations/tokens", () => ({
   useMockPanelData: () => useMock(),
+}));
+
+vi.mock("@/lib/integrations/meta/structure-config", () => ({
+  metaStructureInactiveMaxAgeDays: () => 180,
 }));
 
 import {
@@ -32,6 +36,7 @@ function payload(target: Partial<AdChangePayload["target"]>): AdChangePayload {
       tenantId: "t1",
       platform: "meta",
       adAccountId: "act_111",
+      campaignId: "c1",
       ...target,
     },
     rationale: {
@@ -56,13 +61,23 @@ describe("(e) ownership", () => {
   beforeEach(() => {
     findTenant.mockReset();
     findAd.mockReset();
-    findAdsetInsight.mockReset();
-    findInsight.mockReset();
+    findAdSet.mockReset();
+    findCampaign.mockReset();
     useMock.mockReturnValue(false);
     findTenant.mockResolvedValue({
       id: "t1",
       slug: "real-brand",
       metaAccountId: "act_111",
+    });
+    findCampaign.mockResolvedValue({
+      id: "mc1",
+      metaAccountId: "act_111",
+    });
+    findAdSet.mockResolvedValue({
+      id: "ms1",
+      campaignId: "c1",
+      metaAccountId: "act_111",
+      effectiveStatus: "ACTIVE",
     });
   });
 
@@ -76,6 +91,24 @@ describe("(e) ownership", () => {
     await expect(
       assertTargetOwnership({ tenantId: "t1", payload: payload({}) }),
     ).rejects.toMatchObject({ code: "mock_mode" });
+  });
+
+  it("rejects empty campaignId", async () => {
+    await expect(
+      assertTargetOwnership({
+        tenantId: "t1",
+        payload: payload({ campaignId: "" }),
+      }),
+    ).rejects.toMatchObject({ code: "empty_campaign_id" });
+  });
+
+  it("rejects unknown campaign node", async () => {
+    await expect(
+      assertTargetOwnership({
+        tenantId: "t1",
+        payload: payload({ campaignId: "unknown" }),
+      }),
+    ).rejects.toMatchObject({ code: "empty_campaign_id" });
   });
 
   it("rejects mock Meta ID", async () => {
@@ -92,6 +125,7 @@ describe("(e) ownership", () => {
       tenantId: "other",
       adsetId: "as1",
       campaignId: "c1",
+      effectiveStatus: "ACTIVE",
     });
     await expect(
       assertTargetOwnership({
@@ -101,21 +135,30 @@ describe("(e) ownership", () => {
     ).rejects.toMatchObject({ code: "foreign_tenant" });
   });
 
-  it("rejects id not in synced records", async () => {
+  it("missing ad mentions age window", async () => {
     findAd.mockResolvedValue(null);
     await expect(
       assertTargetOwnership({
         tenantId: "t1",
         payload: payload({ adId: "99999", adAccountId: "act_111" }),
       }),
-    ).rejects.toMatchObject({ code: "ad_not_found" });
+    ).rejects.toMatchObject({ code: "outside_sync_window" });
+    try {
+      await assertTargetOwnership({
+        tenantId: "t1",
+        payload: payload({ adId: "99999", adAccountId: "act_111" }),
+      });
+    } catch (e) {
+      expect((e as Error).message).toMatch(/180 günden eski/);
+    }
   });
 
-  it("accepts owned synced ad", async () => {
+  it("accepts owned synced ad + campaign row", async () => {
     findAd.mockResolvedValue({
       tenantId: "t1",
       adsetId: "as1",
       campaignId: "c1",
+      effectiveStatus: "PAUSED",
     });
     await expect(
       assertTargetOwnership({
@@ -123,6 +166,7 @@ describe("(e) ownership", () => {
         payload: payload({
           adId: "12001",
           adsetId: "as1",
+          campaignId: "c1",
           adAccountId: "act_111",
         }),
       }),

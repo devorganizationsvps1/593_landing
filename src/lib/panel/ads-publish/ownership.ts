@@ -1,11 +1,13 @@
 /**
- * (e) Yazma hedefi sahipliği — senkronize Meta kayıtları + tenant metaAccountId.
+ * (e) Yazma hedefi sahipliği — MetaCampaign / MetaAdSet / MetaAd + tenant metaAccountId.
  * Mock mod / mock tenant / mock ID → ret.
+ * Hacim penceresi dışında kalan durdurulmuş varlıklar için açık mesaj.
  */
 import { prisma } from "@/lib/db";
 import { useMockPanelData } from "@/lib/integrations/tokens";
 import { MOCK_TENANTS } from "@/lib/panel/mock-data";
 import type { AdChangePayload } from "@/lib/panel/ads-publish/types";
+import { metaStructureInactiveMaxAgeDays } from "@/lib/integrations/meta/structure-config";
 
 export class OwnershipError extends Error {
   constructor(
@@ -18,7 +20,9 @@ export class OwnershipError extends Error {
       | "ad_not_found"
       | "adset_not_found"
       | "campaign_not_found"
-      | "foreign_tenant",
+      | "foreign_tenant"
+      | "empty_campaign_id"
+      | "outside_sync_window",
   ) {
     super(message);
     this.name = "OwnershipError";
@@ -49,6 +53,15 @@ export function isMockTenantRecord(tenant: {
   );
 }
 
+function outsideWindowMessage(kind: string, id: string): string {
+  const days = metaStructureInactiveMaxAgeDays();
+  return (
+    `${kind} senkronize kayıtlarda yok: ${id}. ` +
+    `Muhtemel neden: ${days} günden eski durdurulmuş varlık (hacim penceresi dışı); ` +
+    `Ads Manager’dan güncelleyin veya META_STRUCTURE_INACTIVE_MAX_AGE_DAYS değerini artırın.`
+  );
+}
+
 export async function assertTargetOwnership(opts: {
   tenantId: string;
   payload: AdChangePayload;
@@ -74,12 +87,14 @@ export async function assertTargetOwnership(opts: {
   }
 
   const { target } = opts.payload;
-  for (const id of [target.adId, target.adsetId, target.campaignId, target.adAccountId]) {
+  for (const id of [
+    target.adId,
+    target.adsetId,
+    target.campaignId,
+    target.adAccountId,
+  ]) {
     if (looksLikeMockMetaId(id)) {
-      throw new OwnershipError(
-        `Mock Meta ID reddedildi: ${id}`,
-        "mock_id",
-      );
+      throw new OwnershipError(`Mock Meta ID reddedildi: ${id}`, "mock_id");
     }
   }
 
@@ -91,22 +106,35 @@ export async function assertTargetOwnership(opts: {
       );
     }
   } else {
-    // Boşsa tenant hesabını zorunlu doldur / yine de hesap eşleşmesi beklenir
     throw new OwnershipError(
       "adAccountId gerekli ve tenant metaAccountId ile eşleşmeli.",
       "account_mismatch",
     );
   }
 
+  const campaignId = (target.campaignId || "").trim();
+  if (!campaignId || campaignId === "unknown") {
+    throw new OwnershipError(
+      "campaignId boş veya unknown — hedef yazılamaz.",
+      "empty_campaign_id",
+    );
+  }
+
+  // META_AD_QUERY: ALL — sahiplik durdurulmuş satırları da kabul eder.
   if (target.adId) {
     const ad = await prisma.metaAd.findFirst({
       where: { adId: target.adId },
-      select: { tenantId: true, adsetId: true, campaignId: true },
+      select: {
+        tenantId: true,
+        adsetId: true,
+        campaignId: true,
+        effectiveStatus: true,
+      },
     });
     if (!ad) {
       throw new OwnershipError(
-        `Reklam senkronize kayıtlarda yok: ${target.adId}`,
-        "ad_not_found",
+        outsideWindowMessage("Reklam", target.adId),
+        "outside_sync_window",
       );
     }
     if (ad.tenantId !== tenant.id) {
@@ -124,51 +152,61 @@ export async function assertTargetOwnership(opts: {
   }
 
   if (target.adsetId) {
-    const viaAd = await prisma.metaAd.findFirst({
+    const set = await prisma.metaAdSet.findFirst({
       where: { tenantId: tenant.id, adsetId: target.adsetId },
-      select: { id: true },
+      select: {
+        id: true,
+        campaignId: true,
+        metaAccountId: true,
+        effectiveStatus: true,
+      },
     });
-    const viaInsight = viaAd
-      ? true
-      : Boolean(
-          await prisma.metaAdsetInsight.findFirst({
-            where: { tenantId: tenant.id, adsetId: target.adsetId },
-            select: { id: true },
-          }),
+    if (!set) {
+      // Geriye dönük: MetaAd üzerinden
+      const viaAd = await prisma.metaAd.findFirst({
+        where: { tenantId: tenant.id, adsetId: target.adsetId },
+        select: { id: true },
+      });
+      if (!viaAd) {
+        throw new OwnershipError(
+          outsideWindowMessage("Reklam seti", target.adsetId),
+          "outside_sync_window",
         );
-    if (!viaInsight) {
+      }
+    } else if (
+      set.metaAccountId &&
+      actKey(set.metaAccountId) !== actKey(tenant.metaAccountId)
+    ) {
       throw new OwnershipError(
-        `Reklam seti senkronize kayıtlarda yok: ${target.adsetId}`,
-        "adset_not_found",
+        `Reklam seti başka hesaba ait: ${target.adsetId}`,
+        "account_mismatch",
       );
-    }
-    // Başka tenant’ta aynı adsetId?
-    const foreign = await prisma.metaAd.findFirst({
-      where: { adsetId: target.adsetId, tenantId: { not: tenant.id } },
-      select: { tenantId: true },
-    });
-    if (foreign && !viaAd) {
-      // insight-only on this tenant is OK; if only foreign MetaAd exists without local → already failed
     }
   }
 
-  if (target.campaignId) {
-    const viaAd = await prisma.metaAd.findFirst({
-      where: { tenantId: tenant.id, campaignId: target.campaignId },
-      select: { id: true },
+  {
+    const camp = await prisma.metaCampaign.findFirst({
+      where: { tenantId: tenant.id, campaignId },
+      select: { id: true, metaAccountId: true },
     });
-    const viaInsight = viaAd
-      ? true
-      : Boolean(
-          await prisma.metaInsight.findFirst({
-            where: { tenantId: tenant.id, campaignId: target.campaignId },
-            select: { id: true },
-          }),
+    if (!camp) {
+      const viaAd = await prisma.metaAd.findFirst({
+        where: { tenantId: tenant.id, campaignId },
+        select: { id: true },
+      });
+      if (!viaAd) {
+        throw new OwnershipError(
+          outsideWindowMessage("Kampanya", campaignId),
+          "outside_sync_window",
         );
-    if (!viaInsight) {
+      }
+    } else if (
+      camp.metaAccountId &&
+      actKey(camp.metaAccountId) !== actKey(tenant.metaAccountId)
+    ) {
       throw new OwnershipError(
-        `Kampanya senkronize kayıtlarda yok: ${target.campaignId}`,
-        "campaign_not_found",
+        `Kampanya başka hesaba ait: ${campaignId}`,
+        "account_mismatch",
       );
     }
   }

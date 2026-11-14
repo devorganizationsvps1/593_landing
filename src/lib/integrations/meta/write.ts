@@ -201,4 +201,36 @@ export async function fetchLiveAdsetSnapshot(adsetId: string): Promise<{
   };
 }
 
+export async function fetchLiveCampaignSnapshot(campaignId: string): Promise<{
+  id: string;
+  status: string;
+  effective_status?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+}> {
+  const token = getMetaSystemUserToken();
+  const url = `${GRAPH}/${campaignId}?fields=id,status,effective_status,daily_budget,lifetime_budget&access_token=${encodeURIComponent(token)}`;
+  const { res, json } = await graphFetch<{
+    id?: string;
+    status?: string;
+    effective_status?: string;
+    daily_budget?: string;
+    lifetime_budget?: string;
+    error?: { message?: string };
+  }>(url);
+  if (!res.ok || json.error || !json.id) {
+    throw new MetaGraphError(
+      json.error?.message || `Meta campaign snapshot ${res.status}`,
+      res.status,
+    );
+  }
+  return {
+    id: json.id,
+    status: json.status || "",
+    effective_status: json.effective_status,
+    daily_budget: json.daily_budget,
+    lifetime_budget: json.lifetime_budget,
+  };
+}
+
 export { actId };

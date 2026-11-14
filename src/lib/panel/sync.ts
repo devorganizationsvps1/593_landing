@@ -458,6 +458,7 @@ export async function runAgencySync(opts?: {
             metaAccountId,
           });
           const syncedAt = new Date();
+          // META_AD_QUERY: ALL — sync yazar; okuyan ekranlar kendi filtresini uygular.
           for (const ad of creatives) {
             const prev = await prisma.metaAd.findUnique({
               where: {

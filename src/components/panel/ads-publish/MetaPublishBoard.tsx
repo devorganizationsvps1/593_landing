@@ -15,6 +15,10 @@ import type {
   MetaAdsCampaignNode,
 } from "@/lib/panel/ads-publish/meta-account-ads";
 import {
+  effectiveStatusHint,
+} from "@/lib/panel/ads-publish/meta-account-ads";
+import { isAdsetBudgetLocked } from "@/lib/panel/ads-publish/matrix";
+import {
   packageStatusLabel,
   type AdChangeField,
   type AdChangeMedia,
@@ -22,7 +26,13 @@ import {
 } from "@/lib/panel/ads-publish/types";
 import type { ApprovalPreview } from "@/lib/panel/ads-publish/approval-preview";
 
-type Brand = { id: string; slug: string; name: string; metaAccountId: string };
+type Brand = {
+  id: string;
+  slug: string;
+  name: string;
+  metaAccountId: string;
+  currency: string;
+};
 
 type EditorTab = "creative" | "audience" | "placements" | "status";
 
@@ -161,6 +171,38 @@ export default function MetaPublishBoard({
     (p) => !["pending", "draft", "rejected"].includes(p.status),
   );
 
+  const selectedCampaign = useMemo(() => {
+    if (!selectedAd) return null;
+    return (
+      adsBundle.tree.find((c) => c.campaignId === selectedAd.campaignId) ?? null
+    );
+  }, [adsBundle.tree, selectedAd]);
+
+  const selectedAdset = useMemo(() => {
+    if (!selectedAd || !selectedCampaign) return null;
+    return (
+      selectedCampaign.adsets.find((s) => s.adsetId === selectedAd.adsetId) ??
+      null
+    );
+  }, [selectedAd, selectedCampaign]);
+
+  const currency = selectedBrand?.currency || "TRY";
+  const campaignBudgetLocked = Boolean(
+    selectedCampaign && selectedCampaign.budgetLevel === "campaign",
+  );
+  const lifetimeLocked =
+    selectedCampaign?.budgetKind === "lifetime" ||
+    selectedAdset?.budgetKind === "lifetime";
+  const unknownTarget =
+    !selectedAd?.campaignId ||
+    selectedAd.campaignId === "unknown" ||
+    selectedAd.adsetId === "unknown";
+  const adsetDailyBudgetLocked =
+    isAdsetBudgetLocked({
+      fieldKey: "adset.daily_budget",
+      campaignHasBudget: campaignBudgetLocked,
+    }) || lifetimeLocked;
+
   function setField<K extends keyof EditorState>(key: K, value: EditorState[K]) {
     setEditor((prev) => ({ ...prev, [key]: value }));
   }
@@ -178,11 +220,15 @@ export default function MetaPublishBoard({
         { field: "adset.placements", label: "Yerleşimler", key: "placements" },
         { field: "ad.status", label: "Reklam durumu", key: "adStatus" },
         { field: "adset.status", label: "Reklam seti durumu", key: "adsetStatus" },
-        {
-          field: "adset.daily_budget",
-          label: "Günlük bütçe",
-          key: "dailyBudget",
-        },
+        ...(adsetDailyBudgetLocked
+          ? []
+          : [
+              {
+                field: "adset.daily_budget",
+                label: `Günlük bütçe (${currency})`,
+                key: "dailyBudget" as keyof EditorState,
+              },
+            ]),
       ];
     const changes: AdChangeField[] = [];
     for (const p of pairs) {
@@ -233,6 +279,10 @@ export default function MetaPublishBoard({
 
   async function saveDraft(andSubmit: boolean) {
     if (!selectedBrand) return;
+    if (unknownTarget) {
+      setMessage("Kampanya kimliği yok (unknown) — paket oluşturulamaz.");
+      return;
+    }
     const changes = buildChanges();
     if (changes.length === 0 && !selectedCard) {
       setMessage("En az bir alan değiştirin veya hazır kreatif seçin.");
@@ -396,22 +446,58 @@ export default function MetaPublishBoard({
                   <div key={camp.campaignId}>
                     <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                       {camp.campaignName}
+                      <span className="ml-1 font-mono font-normal normal-case text-zinc-400">
+                        {camp.campaignId}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-zinc-400">
+                      {camp.budgetLevel === "campaign"
+                        ? `Bütçe: kampanya (${camp.budgetKind})`
+                        : camp.budgetLevel === "adset"
+                          ? "Bütçe: reklam seti"
+                          : "Bütçe: —"}
+                      {camp.status
+                        ? ` · ayar ${camp.status}`
+                        : ""}
+                      {camp.effectiveStatus &&
+                      camp.effectiveStatus !== camp.status
+                        ? ` · fiili ${camp.effectiveStatus}`
+                        : ""}
                     </p>
                     <ul className="mt-1.5 space-y-2">
                       {camp.adsets.map((set) => (
                         <li key={set.adsetId}>
                           <p className="truncate text-xs text-zinc-600">
-                            {set.adsetName}
+                            {set.adsetName}{" "}
+                            <span className="font-mono text-[10px] text-zinc-400">
+                              {set.adsetId}
+                            </span>
                           </p>
                           <ul className="mt-1 space-y-1">
                             {set.ads.map((ad) => {
                               const active = ad.adId === selectedAdId;
                               const thumb = ad.thumbnailUrl || ad.imageUrl;
+                              const hint = effectiveStatusHint({
+                                entityStatus: ad.status,
+                                entityEffective: ad.effectiveStatus,
+                                parentLabel: "Reklam",
+                              });
                               return (
                                 <button
                                   key={ad.adId}
                                   type="button"
-                                  onClick={() => setSelectedAdId(ad.adId)}
+                                  onClick={() => {
+                                    if (
+                                      !ad.campaignId ||
+                                      ad.campaignId === "unknown"
+                                    ) {
+                                      setMessage(
+                                        "Kampanya kimliği yok (unknown) — düzenlenemez.",
+                                      );
+                                      return;
+                                    }
+                                    setSelectedAdId(ad.adId);
+                                  }}
                                   className={`flex w-full items-center gap-2 rounded-xl border px-2 py-1.5 text-left transition ${
                                     active
                                       ? "border-[#141111] bg-zinc-50"
@@ -433,7 +519,12 @@ export default function MetaPublishBoard({
                                       {ad.adName}
                                     </span>
                                     <span className="block truncate text-[11px] text-zinc-500">
-                                      {ad.effectiveStatus || ad.status || "—"}
+                                      {ad.campaignName} · {ad.campaignId}
+                                    </span>
+                                    <span className="block truncate text-[11px] text-zinc-500">
+                                      ayar {ad.status || "—"} · fiili{" "}
+                                      {ad.effectiveStatus || "—"}
+                                      {hint ? ` · ${hint}` : ""}
                                     </span>
                                   </span>
                                 </button>
@@ -522,9 +613,14 @@ export default function MetaPublishBoard({
               <h3 className="text-sm font-semibold">Değişiklik editörü</h3>
               <p className="mt-1 text-xs text-zinc-500">
                 {selectedAd
-                  ? `${selectedAd.campaignName} → ${selectedAd.adsetName} → ${selectedAd.adName}`
+                  ? `${selectedAd.campaignName} (${selectedAd.campaignId}) → ${selectedAd.adsetName} (${selectedAd.adsetId}) → ${selectedAd.adName} (${selectedAd.adId})`
                   : "Soldan bir reklam seçin"}
               </p>
+              {unknownTarget ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Kampanya/set kimliği eksik (unknown) — paket oluşturulamaz.
+                </p>
+              ) : null}
             </div>
             {selectedAd?.permalinkUrl ? (
               <a
@@ -656,23 +752,45 @@ export default function MetaPublishBoard({
               <>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field
-                    label="Reklam durumu"
+                    label="Reklam durumu (ayar)"
                     value={editor.adStatus}
                     onChange={(v) => setField("adStatus", v)}
                     placeholder="ACTIVE / PAUSED"
                   />
                   <Field
-                    label="Reklam seti durumu"
+                    label="Reklam seti durumu (ayar)"
                     value={editor.adsetStatus}
                     onChange={(v) => setField("adsetStatus", v)}
                     placeholder="ACTIVE / PAUSED"
                   />
                 </div>
-                <Field
-                  label="Günlük bütçe (TRY)"
-                  value={editor.dailyBudget}
-                  onChange={(v) => setField("dailyBudget", v)}
-                />
+                {selectedAd ? (
+                  <p className="text-xs text-zinc-500">
+                    Fiili reklam: {selectedAd.effectiveStatus || "—"}
+                    {effectiveStatusHint({
+                      entityStatus: selectedAd.status,
+                      entityEffective: selectedAd.effectiveStatus,
+                    })
+                      ? ` — ${effectiveStatusHint({
+                          entityStatus: selectedAd.status,
+                          entityEffective: selectedAd.effectiveStatus,
+                        })}`
+                      : ""}
+                  </p>
+                ) : null}
+                {adsetDailyBudgetLocked ? (
+                  <p className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    {lifetimeLocked
+                      ? "Toplam (lifetime) bütçe şimdilik düzenlenemez."
+                      : "Bütçe kampanya düzeyinde — set bütçesi kilitli. Kampanya bütçesini düzenleyin."}
+                  </p>
+                ) : (
+                  <Field
+                    label={`Günlük bütçe (${currency})`}
+                    value={editor.dailyBudget}
+                    onChange={(v) => setField("dailyBudget", v)}
+                  />
+                )}
               </>
             ) : null}
 
@@ -843,14 +961,32 @@ function ApprovalPreviewModal({
             </dd>
           </div>
         </dl>
+        {!preview.liveReadOk ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Canlı değer okunamadı
+            {preview.liveReadError ? `: ${preview.liveReadError}` : ""}. Son
+            senkronizasyon:{" "}
+            {preview.lastSyncedAt
+              ? new Date(preview.lastSyncedAt).toLocaleString("tr-TR")
+              : "bilinmiyor"}
+            . Onay engellendi — sync veya Meta erişimini kontrol edin.
+          </p>
+        ) : null}
         <ul className="mt-4 divide-y divide-zinc-100 rounded-xl border border-zinc-100">
           {preview.changes.map((c) => (
             <li key={c.field} className="px-3 py-2 text-sm">
-              <p className="font-medium text-zinc-900">{c.label}</p>
+              <p className="font-medium text-zinc-900">
+                {c.label}
+                {c.currentFromLive ? (
+                  <span className="ml-2 text-[10px] font-normal text-emerald-700">
+                    canlı
+                  </span>
+                ) : null}
+              </p>
               {c.budget ? (
                 <p className="mt-0.5 text-zinc-600">
                   {c.budget.currentMajor ?? "—"} → {c.budget.proposedMajor ?? "—"}{" "}
-                  TRY/gün
+                  {c.budget.currency || preview.currency}/gün
                 </p>
               ) : (
                 <p className="mt-0.5 text-zinc-600">
@@ -874,7 +1010,7 @@ function ApprovalPreviewModal({
           <button
             type="button"
             className={btnPrimary}
-            disabled={busy}
+            disabled={busy || !preview.liveReadOk}
             onClick={onConfirm}
           >
             Onayla ve uygula
