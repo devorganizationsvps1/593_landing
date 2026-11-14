@@ -409,7 +409,8 @@ export async function loadBrandBudgetPlan(
     listCampaignBudgets(tenant.id, months),
     listCampaignAliases(tenant.id),
     prisma.metaAd.findMany({
-      where: { tenantId: tenant.id },
+      // Durdurulmuş reklamlar bütçe "aktif mi?" işaretini bozmasın.
+      where: { tenantId: tenant.id, effectiveStatus: "ACTIVE" },
       select: { adsetId: true, campaignId: true, effectiveStatus: true },
     }),
     prisma.googleAdsMetric.findMany({

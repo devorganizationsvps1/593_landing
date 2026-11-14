@@ -1,9 +1,14 @@
 /**
  * Meta kampanya / reklam seti yapı sync (arşiv + silinmiş hariç).
  * Bütçe minor unit string olarak saklanır (Graph ile aynı).
+ * Durdurulmuş varlıklar: META_STRUCTURE_INACTIVE_MAX_AGE_DAYS kesmesi.
  */
 import { getMetaSystemUserToken } from "@/lib/integrations/tokens";
 import { graphFetch } from "@/lib/integrations/meta/graph";
+import {
+  metaStructureInactiveMaxAgeDays,
+  shouldSyncStructureEntity,
+} from "@/lib/integrations/meta/structure-config";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -101,7 +106,9 @@ export async function fetchMetaCampaignStructure(opts: {
     "effective_status",
     "daily_budget",
     "lifetime_budget",
+    "updated_time",
   ].join(",");
+  const maxAgeDays = metaStructureInactiveMaxAgeDays();
 
   const rows: MetaCampaignStructureRow[] = [];
   let limit = 100;
@@ -125,6 +132,7 @@ export async function fetchMetaCampaignStructure(opts: {
           effective_status?: string;
           daily_budget?: string;
           lifetime_budget?: string;
+          updated_time?: string;
         }>;
         paging?: { next?: string };
         error?: GraphErr;
@@ -143,6 +151,16 @@ export async function fetchMetaCampaignStructure(opts: {
       }
       for (const c of json.data ?? []) {
         if (!c.id) continue;
+        const effectiveStatus = c.effective_status || c.status || "";
+        if (
+          !shouldSyncStructureEntity({
+            effectiveStatus,
+            updatedTime: c.updated_time,
+            maxAgeDays,
+          })
+        ) {
+          continue;
+        }
         const daily = minorOrNull(c.daily_budget);
         const lifetime = minorOrNull(c.lifetime_budget);
         const budgetKind = deriveBudgetKind(daily, lifetime);
@@ -152,7 +170,7 @@ export async function fetchMetaCampaignStructure(opts: {
           campaignId: c.id,
           campaignName: c.name || c.id,
           status: c.status || "",
-          effectiveStatus: c.effective_status || c.status || "",
+          effectiveStatus,
           dailyBudgetMinor: daily,
           lifetimeBudgetMinor: lifetime,
           budgetLevel,
@@ -180,7 +198,9 @@ export async function fetchMetaAdSetStructure(opts: {
     "campaign{name}",
     "daily_budget",
     "lifetime_budget",
+    "updated_time",
   ].join(",");
+  const maxAgeDays = metaStructureInactiveMaxAgeDays();
 
   const rows: MetaAdSetStructureRow[] = [];
   let limit = 100;
@@ -206,6 +226,7 @@ export async function fetchMetaAdSetStructure(opts: {
           campaign?: { id?: string; name?: string };
           daily_budget?: string;
           lifetime_budget?: string;
+          updated_time?: string;
         }>;
         paging?: { next?: string };
         error?: GraphErr;
@@ -224,6 +245,16 @@ export async function fetchMetaAdSetStructure(opts: {
       }
       for (const a of json.data ?? []) {
         if (!a.id) continue;
+        const effectiveStatus = a.effective_status || a.status || "";
+        if (
+          !shouldSyncStructureEntity({
+            effectiveStatus,
+            updatedTime: a.updated_time,
+            maxAgeDays,
+          })
+        ) {
+          continue;
+        }
         const daily = minorOrNull(a.daily_budget);
         const lifetime = minorOrNull(a.lifetime_budget);
         rows.push({
@@ -232,7 +263,7 @@ export async function fetchMetaAdSetStructure(opts: {
           campaignId: a.campaign_id || a.campaign?.id || "",
           campaignName: a.campaign?.name || "",
           status: a.status || "",
-          effectiveStatus: a.effective_status || a.status || "",
+          effectiveStatus,
           dailyBudgetMinor: daily,
           lifetimeBudgetMinor: lifetime,
           budgetKind: deriveBudgetKind(daily, lifetime),

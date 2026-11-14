@@ -362,11 +362,22 @@ export async function runAgencySync(opts?: {
               },
             });
           }
+          // Yaş kesmesi durdurulmuşları getirmez — yalnızca canlı görünenler
+          // kaybolursa tombstone (eski PAUSED satırları silinmiş sayma).
           await prisma.metaCampaign.updateMany({
             where: {
               tenantId: tenant.id,
               campaignId: { notIn: campaigns.map((c) => c.campaignId) },
-              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
+              effectiveStatus: {
+                in: [
+                  "ACTIVE",
+                  "PENDING_REVIEW",
+                  "PREAPPROVED",
+                  "PENDING_BILLING_INFO",
+                  "IN_PROCESS",
+                  "WITH_ISSUES",
+                ],
+              },
             },
             data: { effectiveStatus: "DELETED", syncedAt },
           });
@@ -409,7 +420,16 @@ export async function runAgencySync(opts?: {
             where: {
               tenantId: tenant.id,
               adsetId: { notIn: adsets.map((a) => a.adsetId) },
-              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
+              effectiveStatus: {
+                in: [
+                  "ACTIVE",
+                  "PENDING_REVIEW",
+                  "PREAPPROVED",
+                  "PENDING_BILLING_INFO",
+                  "IN_PROCESS",
+                  "WITH_ISSUES",
+                ],
+              },
             },
             data: { effectiveStatus: "DELETED", syncedAt },
           });
@@ -498,12 +518,21 @@ export async function runAgencySync(opts?: {
               },
             });
           }
-          // Sync kapsamı dışında kalan (silinmiş/arşiv) satırlar — satır silinmez.
+          // Yaş kesmesi PAUSED’ı getirmez; yalnızca önce ACTIVE olanlar tombstone.
           await prisma.metaAd.updateMany({
             where: {
               tenantId: tenant.id,
               adId: { notIn: creatives.map((ad) => ad.adId) },
-              effectiveStatus: { notIn: ["DELETED", "ARCHIVED"] },
+              effectiveStatus: {
+                in: [
+                  "ACTIVE",
+                  "PENDING_REVIEW",
+                  "PREAPPROVED",
+                  "PENDING_BILLING_INFO",
+                  "IN_PROCESS",
+                  "WITH_ISSUES",
+                ],
+              },
             },
             data: { effectiveStatus: "DELETED", syncedAt },
           });

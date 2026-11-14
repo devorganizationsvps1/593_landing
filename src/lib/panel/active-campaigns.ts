@@ -186,6 +186,9 @@ export async function loadActiveCampaigns(opts: {
         GROUP BY "tenantId", "campaignId"
       `,
       prisma.metaAd.findMany({
+        // Eski sync yalnızca ACTIVE yazıyordu; durdurulmuş satırlar live=false
+        // yanılgısı yaratmasın (Kampanyalar ekranı aynı kalsın).
+        where: { effectiveStatus: "ACTIVE" },
         select: {
           tenantId: true,
           adsetId: true,

@@ -580,7 +580,8 @@ async function bundleFromDb(
       metaInsights: {
         where: { date: dateFilter },
       },
-      metaAds: true,
+      // Marka Meta ekranı / günlük rapor: eski davranış = yalnızca ACTIVE snapshot.
+      metaAds: { where: { effectiveStatus: "ACTIVE" } },
       metaAdInsights: {
         where: { date: dateFilter },
       },
