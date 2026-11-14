@@ -83,15 +83,49 @@ export function isWriteKindAllowed(
   return allowedWriteKinds(flags).has(kind);
 }
 
-export function stepIdempotencyKey(
-  kind: string,
+function targetEntityKey(target: {
+  adId?: string;
+  adsetId?: string;
+  campaignId?: string;
+}): string {
+  if (target.adId) return `ad:${target.adId}`;
+  if (target.adsetId) return `adset:${target.adsetId}`;
+  if (target.campaignId) return `campaign:${target.campaignId}`;
+  return "account";
+}
+
+/** Deterministik JSON — anahtar sırası sabit. */
+export function stableStringify(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+/**
+ * Adım tekilliği: paket sürümü + hedef varlık + kind + yeni değer.
+ * Yeniden denemede aynı girdiler → aynı anahtar.
+ */
+export function stepIdempotencyKey(opts: {
+  versionId: string;
+  kind: string;
   target: {
     adId?: string;
     adsetId?: string;
     campaignId?: string;
-  },
-): string {
-  const id =
-    target.adId || target.adsetId || target.campaignId || "account";
-  return `${kind}:${id}`;
+  };
+  proposed: unknown;
+}): string {
+  return [
+    opts.versionId,
+    targetEntityKey(opts.target),
+    opts.kind,
+    stableStringify(opts.proposed),
+  ].join("|");
 }

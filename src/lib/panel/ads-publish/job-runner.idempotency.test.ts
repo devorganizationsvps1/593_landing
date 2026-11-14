@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   allowedWriteKinds,
   isWriteKindAllowed,
   stepIdempotencyKey,
+  stableStringify,
 } from "@/lib/panel/ads-publish/write-kinds";
 import {
   isAdStatusStale,
@@ -28,13 +29,34 @@ describe("(a) write-kinds allowlist", () => {
 });
 
 describe("(a) step idempotency key", () => {
-  it("is stable per kind + target", () => {
-    expect(
-      stepIdempotencyKey("ad.status", { adId: "123" }),
-    ).toBe("ad.status:123");
-    expect(
-      stepIdempotencyKey("adset.daily_budget", { adsetId: "99" }),
-    ).toBe("adset.daily_budget:99");
+  const base = {
+    versionId: "ver_1",
+    kind: "ad.status",
+    target: { adId: "123" },
+    proposed: "PAUSED",
+  };
+
+  it("is deterministic: version + entity + kind + proposed", () => {
+    const a = stepIdempotencyKey(base);
+    const b = stepIdempotencyKey({ ...base });
+    expect(a).toBe(b);
+    expect(a).toBe('ver_1|ad:123|ad.status|"PAUSED"');
+  });
+
+  it("retry with same inputs yields same key", () => {
+    const first = stepIdempotencyKey(base);
+    const retry = stepIdempotencyKey(base);
+    expect(retry).toBe(first);
+  });
+
+  it("changes when proposed value changes", () => {
+    expect(stepIdempotencyKey(base)).not.toBe(
+      stepIdempotencyKey({ ...base, proposed: "ACTIVE" }),
+    );
+  });
+
+  it("stableStringify sorts object keys", () => {
+    expect(stableStringify({ b: 1, a: 2 })).toBe('{"a":2,"b":1}');
   });
 });
 
@@ -71,19 +93,144 @@ describe("(a) status stale check", () => {
 });
 
 describe("(a) claim semantics (documented)", () => {
-  it("claim uses updateMany queued→running pattern (source)", async () => {
+  it("claim uses updateMany queued→running and pending→running", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const src = readFileSync(
       resolve(process.cwd(), "src/lib/panel/ads-publish/job-runner.ts"),
       "utf8",
     );
-    expect(src).toMatch(/updateMany/);
+    expect(src).toMatch(/claimAdChangeJob/);
+    expect(src).toMatch(/claimAdChangeJobStep/);
     expect(src).toMatch(/status:\s*"queued"/);
-    expect(src).toMatch(/status:\s*"running"/);
+    expect(src).toMatch(/status:\s*"pending"/);
     expect(src).toMatch(/count === 1/);
-    // Eski deferred fallthrough yok
     expect(src).not.toMatch(/deferred:\s*true/);
     expect(src).toMatch(/kind_not_in_allowlist/);
+  });
+});
+
+describe("(a) job-level uniqueness for version", () => {
+  it("schema enforces AdChangeJob.versionId unique", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const schema = readFileSync(
+      resolve(process.cwd(), "prisma/schema.prisma"),
+      "utf8",
+    );
+    expect(schema).toMatch(/model AdChangeJob[\s\S]*?versionId\s+String\s+@unique/);
+  });
+
+  it("enqueue catches P2002 and returns existing job (source)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(process.cwd(), "src/lib/panel/ads-publish/enqueue-approved-job.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/P2002/);
+    expect(src).toMatch(/created:\s*false/);
+    expect(src).toMatch(/findUnique/);
+  });
+});
+
+const jobUpdateMany = vi.fn();
+const stepUpdateMany = vi.fn();
+
+vi.mock("@/lib/db", () => ({
+  prisma: {
+    adChangeJob: { updateMany: (...args: unknown[]) => jobUpdateMany(...args) },
+    adChangeJobStep: {
+      updateMany: (...args: unknown[]) => stepUpdateMany(...args),
+    },
+  },
+}));
+
+describe("(a) concurrent claim — only one winner", () => {
+  beforeEach(() => {
+    jobUpdateMany.mockReset();
+    stepUpdateMany.mockReset();
+  });
+
+  it("two concurrent job claims → exactly one true", async () => {
+    let calls = 0;
+    jobUpdateMany.mockImplementation(async () => {
+      calls += 1;
+      return { count: calls === 1 ? 1 : 0 };
+    });
+    const { claimAdChangeJob } = await import(
+      "@/lib/panel/ads-publish/job-runner"
+    );
+    const [a, b] = await Promise.all([
+      claimAdChangeJob("job_1"),
+      claimAdChangeJob("job_1"),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(jobUpdateMany).toHaveBeenCalledTimes(2);
+    expect(jobUpdateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: "job_1", status: "queued" },
+      data: { status: "running" },
+    });
+  });
+
+  it("two concurrent step claims → exactly one true", async () => {
+    let calls = 0;
+    stepUpdateMany.mockImplementation(async () => {
+      calls += 1;
+      return { count: calls === 1 ? 1 : 0 };
+    });
+    const { claimAdChangeJobStep } = await import(
+      "@/lib/panel/ads-publish/job-runner"
+    );
+    const [a, b] = await Promise.all([
+      claimAdChangeJobStep("step_1"),
+      claimAdChangeJobStep("step_1"),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(stepUpdateMany).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("(a) enqueue same version → single job", () => {
+  const findUnique = vi.fn();
+  const create = vi.fn();
+
+  beforeEach(() => {
+    findUnique.mockReset();
+    create.mockReset();
+    vi.resetModules();
+    vi.doMock("@/lib/db", () => ({
+      prisma: {
+        adChangeJob: {
+          findUnique: (...a: unknown[]) => findUnique(...a),
+          create: (...a: unknown[]) => create(...a),
+          updateMany: vi.fn(),
+        },
+        adChangeJobStep: { updateMany: vi.fn() },
+      },
+    }));
+    vi.doMock("@/lib/panel/ads-publish/job-runner", () => ({
+      runAdChangeJob: vi.fn(async () => undefined),
+    }));
+  });
+
+  it("second approve request returns same jobId without second create", async () => {
+    findUnique.mockResolvedValue({ id: "job_existing", status: "succeeded" });
+    const { enqueueAndRunApprovedJob } = await import(
+      "@/lib/panel/ads-publish/enqueue-approved-job"
+    );
+    const first = await enqueueAndRunApprovedJob({
+      packageId: "pkg",
+      versionId: "ver_same",
+    });
+    const second = await enqueueAndRunApprovedJob({
+      packageId: "pkg",
+      versionId: "ver_same",
+    });
+    expect(first.jobId).toBe("job_existing");
+    expect(second.jobId).toBe("job_existing");
+    expect(first.created).toBe(false);
+    expect(second.created).toBe(false);
+    expect(create).not.toHaveBeenCalled();
   });
 });

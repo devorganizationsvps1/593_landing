@@ -45,6 +45,15 @@ export async function claimAdChangeJob(jobId: string): Promise<boolean> {
   return result.count === 1;
 }
 
+/** pending → running atomik adım claim (çift uygulama koruması). */
+export async function claimAdChangeJobStep(stepId: string): Promise<boolean> {
+  const result = await prisma.adChangeJobStep.updateMany({
+    where: { id: stepId, status: "pending" },
+    data: { status: "running", startedAt: new Date() },
+  });
+  return result.count === 1;
+}
+
 export async function processQueuedAdChangeJobs(limit = 5): Promise<number> {
   const jobs = await prisma.adChangeJob.findMany({
     where: { status: "queued" },
@@ -100,7 +109,13 @@ export async function runAdChangeJob(jobId: string): Promise<void> {
         dependsOn: string | null;
       }> = [];
       kinds.forEach((kind, i) => {
-        const key = stepIdempotencyKey(kind, payload.target);
+        const change = payload.changes.find((c) => c.field === kind);
+        const key = stepIdempotencyKey({
+          versionId: job.versionId,
+          kind,
+          target: payload.target,
+          proposed: change?.proposed ?? null,
+        });
         if (seen.has(key)) return;
         seen.add(key);
         rows.push({
@@ -123,10 +138,8 @@ export async function runAdChangeJob(jobId: string): Promise<void> {
     for (const step of steps) {
       if (step.status === "succeeded" || step.status === "skipped") continue;
 
-      await prisma.adChangeJobStep.update({
-        where: { id: step.id },
-        data: { status: "running", startedAt: new Date() },
-      });
+      const stepClaimed = await claimAdChangeJobStep(step.id);
+      if (!stepClaimed) continue;
 
       try {
         if (!isWriteKindAllowed(step.kind, tierFlags)) {
