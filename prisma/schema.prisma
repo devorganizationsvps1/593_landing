@@ -208,6 +208,8 @@ model Tenant {
   type                 TenantType      @default(lead)
   timezone             String          @default("Europe/Istanbul")
   currency             String          @default("TRY")
+  /// Meta reklam hesabından sync edilen para birimi (USD, TRY, …). Boş = henüz okunmadı.
+  metaCurrency         String          @default("")
   visible              Boolean         @default(true)
   /// Kare kapak — `/uploads/brands/{id}.webp`
   coverUrl             String?

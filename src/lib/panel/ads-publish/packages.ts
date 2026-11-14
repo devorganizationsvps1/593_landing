@@ -131,14 +131,24 @@ export async function createDraftPackage(opts: {
 }): Promise<AdChangePackageListItem> {
   const tenant = await prisma.tenant.findFirst({
     where: { id: opts.tenantId },
-    select: { id: true, name: true, slug: true, metaAccountId: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      metaAccountId: true,
+      currency: true,
+      metaCurrency: true,
+    },
   });
   if (!tenant) throw new Error("Marka bulunamadı");
   await assertCanEditTenant(opts.actor, tenant.id);
   if (!opts.payload.target.adAccountId?.trim()) {
     opts.payload.target.adAccountId = tenant.metaAccountId;
   }
-  assertPayloadBudgetLimits(opts.payload);
+  assertPayloadBudgetLimits(opts.payload, {
+    tenantCurrency: tenant.currency,
+    metaCurrency: tenant.metaCurrency,
+  });
   await assertTargetOwnership({ tenantId: tenant.id, payload: opts.payload });
 
   const created = await prisma.adChangePackage.create({
@@ -187,7 +197,15 @@ export async function updateDraftPackage(opts: {
   const pack = await prisma.adChangePackage.findFirst({
     where: { id: opts.packageId },
     include: {
-      tenant: { select: { id: true, name: true, slug: true } },
+      tenant: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          currency: true,
+          metaCurrency: true,
+        },
+      },
     },
   });
   if (!pack) throw new Error("Paket bulunamadı");
@@ -198,7 +216,10 @@ export async function updateDraftPackage(opts: {
     );
   }
   await assertCanEditTenant(opts.actor, pack.tenantId);
-  assertPayloadBudgetLimits(opts.payload);
+  assertPayloadBudgetLimits(opts.payload, {
+    tenantCurrency: pack.tenant.currency,
+    metaCurrency: pack.tenant.metaCurrency,
+  });
   await assertTargetOwnership({
     tenantId: pack.tenantId,
     payload: opts.payload,

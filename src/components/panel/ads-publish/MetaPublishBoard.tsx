@@ -19,6 +19,11 @@ import {
 } from "@/lib/panel/ads-publish/meta-account-ads";
 import { isAdsetBudgetLocked } from "@/lib/panel/ads-publish/matrix";
 import {
+  currenciesMismatch,
+  currencyMismatchMessage,
+  resolveBudgetDisplayCurrency,
+} from "@/lib/panel/ads-publish/currency";
+import {
   packageStatusLabel,
   type AdChangeField,
   type AdChangeMedia,
@@ -32,6 +37,7 @@ type Brand = {
   name: string;
   metaAccountId: string;
   currency: string;
+  metaCurrency: string;
 };
 
 type EditorTab = "creative" | "audience" | "placements" | "status";
@@ -186,7 +192,16 @@ export default function MetaPublishBoard({
     );
   }, [selectedAd, selectedCampaign]);
 
-  const currency = selectedBrand?.currency || "TRY";
+  const currencyMismatch = Boolean(
+    selectedBrand &&
+      currenciesMismatch(selectedBrand.currency, selectedBrand.metaCurrency),
+  );
+  const currency = selectedBrand
+    ? resolveBudgetDisplayCurrency({
+        tenantCurrency: selectedBrand.currency,
+        metaCurrency: selectedBrand.metaCurrency,
+      })
+    : "TRY";
   const campaignBudgetLocked = Boolean(
     selectedCampaign && selectedCampaign.budgetLevel === "campaign",
   );
@@ -201,7 +216,9 @@ export default function MetaPublishBoard({
     isAdsetBudgetLocked({
       fieldKey: "adset.daily_budget",
       campaignHasBudget: campaignBudgetLocked,
-    }) || lifetimeLocked;
+    }) ||
+    lifetimeLocked ||
+    currencyMismatch;
 
   function setField<K extends keyof EditorState>(key: K, value: EditorState[K]) {
     setEditor((prev) => ({ ...prev, [key]: value }));
@@ -418,6 +435,18 @@ export default function MetaPublishBoard({
       {message ? (
         <p className="text-sm text-[#e91825]" role="status">
           {message}
+        </p>
+      ) : null}
+
+      {selectedBrand && currencyMismatch ? (
+        <p
+          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          {currencyMismatchMessage(
+            selectedBrand.currency,
+            selectedBrand.metaCurrency,
+          )}
         </p>
       ) : null}
 
@@ -780,9 +809,11 @@ export default function MetaPublishBoard({
                 ) : null}
                 {adsetDailyBudgetLocked ? (
                   <p className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                    {lifetimeLocked
-                      ? "Toplam (lifetime) bütçe şimdilik düzenlenemez."
-                      : "Bütçe kampanya düzeyinde — set bütçesi kilitli. Kampanya bütçesini düzenleyin."}
+                    {currencyMismatch
+                      ? "Para birimi uyuşmazlığı — bütçe düzenleme kapalı (durum değişikliği serbest)."
+                      : lifetimeLocked
+                        ? "Toplam (lifetime) bütçe şimdilik düzenlenemez."
+                        : "Bütçe kampanya düzeyinde — set bütçesi kilitli. Kampanya bütçesini düzenleyin."}
                   </p>
                 ) : (
                   <Field
@@ -961,6 +992,11 @@ function ApprovalPreviewModal({
             </dd>
           </div>
         </dl>
+        {preview.currencyMismatch ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {preview.currencyMismatchMessage}
+          </p>
+        ) : null}
         {!preview.liveReadOk ? (
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Canlı değer okunamadı

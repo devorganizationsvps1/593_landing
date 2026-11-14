@@ -9,6 +9,7 @@ Bu not, o etiketin **üzerindeki** commit’ler içindir (`ee4b561` … güncel 
 |---|---|
 | `20261114220000_meta_campaign_adset_structure` | `MetaCampaign`, `MetaAdSet` + `MetaAd` indexleri |
 | `20261114223000_ad_change_approval_preview` | `AdChangeApproval.previewJson` |
+| `20261114230000_tenant_meta_currency` | `Tenant.metaCurrency` (Meta hesap para birimi) |
 
 Uygulamadan önce SQL’i gözden geçirin; `prisma migrate deploy` (veya app `start` script’i).
 
@@ -37,7 +38,9 @@ npx tsx scripts/report-meta-structure-completeness.ts
 psql "$DATABASE_URL" -f scripts/sql/meta-structure-completeness.sql
 ```
 
-Kontrol: `no_campaign_id`, `ads_missing_campaign_row`, `ads_missing_adset_row`, bütçe dağılımı (cbo/abo, daily/lifetime).
+Kontrol: `no_campaign_id`, `ads_missing_campaign_row`, `ads_missing_adset_row`, bütçe dağılımı (cbo/abo, daily/lifetime), **para birimi uyuşmayan markalar** (`currency` ≠ `metaCurrency`).
+
+Ayrıca: `scripts/sql/prod-postdeploy-checks.sql` sorgu 3.
 
 ## Onay
 

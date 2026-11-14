@@ -1,7 +1,7 @@
 /**
  * Onay önizlemesi — sunucu kaynağı.
  * Mevcut değerler Meta’dan taze okunur; okunamazsa onay engellenir.
- * Para birimi Tenant.currency (hesap senkronundan).
+ * Para birimi: Meta hesap (metaCurrency); yoksa Tenant.currency.
  */
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
@@ -16,6 +16,11 @@ import {
   fetchLiveAdsetSnapshot,
   fetchLiveCampaignSnapshot,
 } from "@/lib/integrations/meta/write";
+import {
+  currenciesMismatch,
+  currencyMismatchMessage,
+  resolveBudgetDisplayCurrency,
+} from "@/lib/panel/ads-publish/currency";
 
 export type ApprovalPreviewChange = {
   field: string;
@@ -42,6 +47,10 @@ export type ApprovalPreview = {
   tenantName: string;
   tenantSlug: string;
   currency: string;
+  tenantCurrency: string;
+  metaCurrency: string;
+  currencyMismatch: boolean;
+  currencyMismatchMessage: string | null;
   target: {
     campaignId: string | null;
     campaignName: string | null;
@@ -74,6 +83,9 @@ function fingerprintOf(preview: Omit<ApprovalPreview, "fingerprint">): string {
     version: preview.version,
     versionId: preview.versionId,
     currency: preview.currency,
+    tenantCurrency: preview.tenantCurrency,
+    metaCurrency: preview.metaCurrency,
+    currencyMismatch: preview.currencyMismatch,
     target: preview.target,
     impact: preview.impact,
     changes: preview.changes,
@@ -89,7 +101,13 @@ export async function buildApprovalPreview(
     where: { id: packageId },
     include: {
       tenant: {
-        select: { id: true, name: true, slug: true, currency: true },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          currency: true,
+          metaCurrency: true,
+        },
       },
     },
   });
@@ -100,7 +118,13 @@ export async function buildApprovalPreview(
   });
   if (!version) return null;
 
-  const currency = (pack.tenant.currency || "TRY").toUpperCase();
+  const tenantCurrency = (pack.tenant.currency || "TRY").toUpperCase();
+  const metaCurrency = (pack.tenant.metaCurrency || "").toUpperCase();
+  const currency = resolveBudgetDisplayCurrency({
+    tenantCurrency,
+    metaCurrency,
+  });
+  const mismatch = currenciesMismatch(tenantCurrency, metaCurrency);
   const payload = (version.payload ?? {}) as AdChangePayload;
   const target = payload.target ?? {
     tenantId: pack.tenantId,
@@ -298,6 +322,12 @@ export async function buildApprovalPreview(
     }
   }
 
+  // Bütçe değişimi + para birimi uyuşmazlığı → onaylanamaz
+  if (mismatch && changes.some((c) => c.budget)) {
+    liveReadOk = false;
+    liveReadError = currencyMismatchMessage(tenantCurrency, metaCurrency);
+  }
+
   const base: Omit<ApprovalPreview, "fingerprint"> = {
     packageId: pack.id,
     version: pack.currentVersion,
@@ -307,6 +337,12 @@ export async function buildApprovalPreview(
     tenantName: pack.tenant.name,
     tenantSlug: pack.tenant.slug,
     currency,
+    tenantCurrency,
+    metaCurrency,
+    currencyMismatch: mismatch,
+    currencyMismatchMessage: mismatch
+      ? currencyMismatchMessage(tenantCurrency, metaCurrency)
+      : null,
     target: {
       campaignId: resolvedCampaignId,
       campaignName:
@@ -337,6 +373,9 @@ export function previewSummaryForStorage(preview: ApprovalPreview) {
     versionId: preview.versionId,
     title: preview.title,
     currency: preview.currency,
+    tenantCurrency: preview.tenantCurrency,
+    metaCurrency: preview.metaCurrency,
+    currencyMismatch: preview.currencyMismatch,
     target: preview.target,
     impact: preview.impact,
     changes: preview.changes,

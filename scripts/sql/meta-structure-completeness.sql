@@ -47,7 +47,19 @@ SELECT
 FROM "MetaAd"
 WHERE "effectiveStatus" NOT IN ('DELETED', 'ARCHIVED');
 
--- 5) Reklam → MetaCampaign / MetaAdSet eşleşmesi (yetim satırlar)
+-- 5) Para birimi uyuşmazlığı
+SELECT
+  id,
+  slug,
+  name,
+  currency AS panel_currency,
+  "metaCurrency" AS meta_account_currency
+FROM "Tenant"
+WHERE "metaCurrency" <> ''
+  AND UPPER(currency) <> UPPER("metaCurrency")
+ORDER BY slug;
+
+-- 6) Reklam → MetaCampaign / MetaAdSet eşleşmesi (yetim satırlar)
 SELECT
   COUNT(*) FILTER (
     WHERE a."campaignId" <> '' AND c."campaignId" IS NULL

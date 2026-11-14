@@ -37,3 +37,16 @@ FROM "AuditLog"
 WHERE entity = 'meta_write'
 ORDER BY "createdAt" DESC
 LIMIT 10;
+
+-- 3) Para birimi uyuşmayan markalar (panel currency ≠ Meta hesap)
+-- Beklenen: 0 satır (veya bilinen istisnalar listelenir)
+SELECT
+  id,
+  slug,
+  name,
+  currency AS panel_currency,
+  "metaCurrency" AS meta_account_currency
+FROM "Tenant"
+WHERE "metaCurrency" <> ''
+  AND UPPER(currency) <> UPPER("metaCurrency")
+ORDER BY slug;

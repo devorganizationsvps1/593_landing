@@ -1,5 +1,5 @@
 /**
- * (c) Bütçe bayatlığı, günlük bütçe yokluğu, % değişim sınırı.
+ * (c) Bütçe bayatlığı, günlük bütçe yokluğu, % değişim sınırı, para birimi.
  */
 import type { AdChangePayload } from "@/lib/panel/ads-publish/types";
 import { fetchLiveAdsetSnapshot } from "@/lib/integrations/meta/write";
@@ -11,6 +11,10 @@ import {
   packageBudgetToMetaMinor,
   parseMetaBudgetMinor,
 } from "@/lib/panel/ads-publish/budget-units";
+import {
+  currenciesMismatch,
+  currencyMismatchMessage,
+} from "@/lib/panel/ads-publish/currency";
 
 export class BudgetCheckError extends Error {
   constructor(
@@ -19,7 +23,8 @@ export class BudgetCheckError extends Error {
       | "stale_budget"
       | "delta_exceeded"
       | "no_daily_budget"
-      | "invalid_budget",
+      | "invalid_budget"
+      | "currency_mismatch",
   ) {
     super(message);
     this.name = "BudgetCheckError";
@@ -27,7 +32,23 @@ export class BudgetCheckError extends Error {
 }
 
 export function findDailyBudgetChange(payload: AdChangePayload) {
-  return payload.changes.find((c) => c.field === "adset.daily_budget");
+  return payload.changes.find(
+    (c) =>
+      c.field === "adset.daily_budget" || c.field === "campaign.daily_budget",
+  );
+}
+
+export function assertBudgetCurrencyAligned(opts: {
+  tenantCurrency: string;
+  metaCurrency: string;
+  payload: AdChangePayload;
+}): void {
+  if (!findDailyBudgetChange(opts.payload)) return;
+  if (!currenciesMismatch(opts.tenantCurrency, opts.metaCurrency)) return;
+  throw new BudgetCheckError(
+    currencyMismatchMessage(opts.tenantCurrency, opts.metaCurrency),
+    "currency_mismatch",
+  );
 }
 
 /** Saf: paket current vs canlı minor — bayat mı? */
@@ -58,8 +79,18 @@ export function assertBudgetDeltaAllowed(opts: {
   }
 }
 
-/** Paket oluşturma / güncelleme — sunucu tarafı % sınırı. */
-export function assertPayloadBudgetLimits(payload: AdChangePayload): void {
+/** Paket oluşturma / güncelleme — para birimi + % sınırı. */
+export function assertPayloadBudgetLimits(
+  payload: AdChangePayload,
+  opts?: { tenantCurrency?: string; metaCurrency?: string },
+): void {
+  if (opts) {
+    assertBudgetCurrencyAligned({
+      tenantCurrency: opts.tenantCurrency || "",
+      metaCurrency: opts.metaCurrency || "",
+      payload,
+    });
+  }
   const change = findDailyBudgetChange(payload);
   if (!change) return;
   const currentMinor = packageBudgetToMetaMinor(change.current);
@@ -84,14 +115,27 @@ export function assertPayloadBudgetLimits(payload: AdChangePayload): void {
  */
 export async function assertLiveBudgetBeforeApply(
   payload: AdChangePayload,
+  opts?: { tenantCurrency?: string; metaCurrency?: string },
 ): Promise<void> {
   const change = findDailyBudgetChange(payload);
   if (!change) return;
-  if (!payload.target.adsetId) {
+  if (opts) {
+    assertBudgetCurrencyAligned({
+      tenantCurrency: opts.tenantCurrency || "",
+      metaCurrency: opts.metaCurrency || "",
+      payload,
+    });
+  }
+  if (!payload.target.adsetId && change.field === "adset.daily_budget") {
     throw new BudgetCheckError(
       "Günlük bütçe adımı için adsetId gerekli.",
       "invalid_budget",
     );
+  }
+
+  if (change.field !== "adset.daily_budget" || !payload.target.adsetId) {
+    // Kampanya bütçesi live check (d) ile genişler; para birimi yukarıda.
+    return;
   }
 
   const live = await fetchLiveAdsetSnapshot(payload.target.adsetId);

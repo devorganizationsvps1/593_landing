@@ -22,6 +22,7 @@ import {
   fetchMetaBreakdownInsights,
 } from "@/lib/integrations/meta/ads";
 import {
+  fetchMetaAdAccountCurrency,
   fetchMetaAdSetStructure,
   fetchMetaCampaignStructure,
 } from "@/lib/integrations/meta/structure";
@@ -327,6 +328,13 @@ export async function runAgencySync(opts?: {
             );
           }
           const syncedAt = new Date();
+          const metaCurrency = await fetchMetaAdAccountCurrency({
+            metaAccountId,
+          });
+          await prisma.tenant.update({
+            where: { id: tenant.id },
+            data: { metaCurrency },
+          });
           const campaigns = await fetchMetaCampaignStructure({ metaAccountId });
           for (const c of campaigns) {
             await prisma.metaCampaign.upsert({

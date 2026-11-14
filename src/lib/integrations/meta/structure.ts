@@ -94,6 +94,25 @@ function notDeletedFilter(): string {
   ]);
 }
 
+/** Reklam hesabı para birimi (Graph account.currency). */
+export async function fetchMetaAdAccountCurrency(opts: {
+  metaAccountId: string;
+}): Promise<string> {
+  const token = getMetaSystemUserToken();
+  const account = actId(opts.metaAccountId);
+  const url = `${GRAPH}/${account}?fields=currency&access_token=${encodeURIComponent(token)}`;
+  const { res, json: rawJson } = await graphFetch(url);
+  const json = rawJson as { currency?: string; error?: GraphErr };
+  if (!res.ok || json.error) {
+    throw new Error(
+      graphErrorText(json.error, `Meta account currency ${res.status}`),
+    );
+  }
+  const cur = (json.currency || "").trim().toUpperCase();
+  if (!cur) throw new Error("Meta hesap para birimi boş döndü");
+  return cur;
+}
+
 export async function fetchMetaCampaignStructure(opts: {
   metaAccountId: string;
 }): Promise<MetaCampaignStructureRow[]> {

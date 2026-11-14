@@ -157,7 +157,10 @@ export async function runAdChangeJob(
       payload,
     });
     await assertStatusNotStale(payload);
-    await assertLiveBudgetBeforeApply(payload);
+    await assertLiveBudgetBeforeApply(payload, {
+      tenantCurrency: job.package.tenant.currency,
+      metaCurrency: job.package.tenant.metaCurrency,
+    });
 
     let steps = job.steps;
     if (steps.length === 0) {
