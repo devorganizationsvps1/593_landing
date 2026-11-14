@@ -20,6 +20,7 @@ import {
   type AdChangeMedia,
   type AdChangePackageListItem,
 } from "@/lib/panel/ads-publish/types";
+import type { ApprovalPreview } from "@/lib/panel/ads-publish/approval-preview";
 
 type Brand = { id: string; slug: string; name: string; metaAccountId: string };
 
@@ -88,6 +89,9 @@ export default function MetaPublishBoard({
   const [baseline, setBaseline] = useState<EditorState>(EMPTY_EDITOR);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [approvePreview, setApprovePreview] = useState<ApprovalPreview | null>(
+    null,
+  );
 
   const selectedBrand = useMemo(
     () => brands.find((b) => b.id === tenantId) ?? null,
@@ -278,10 +282,46 @@ export default function MetaPublishBoard({
     setBusy(`${action}:${id}`);
     setMessage(null);
     try {
+      if (action === "approve") {
+        const res = await fetch(
+          `/api/panel/ads-publish/packages/${id}?preview=1`,
+        );
+        const json = (await res.json()) as {
+          error?: string;
+          preview?: ApprovalPreview;
+        };
+        if (!res.ok || !json.preview) {
+          throw new Error(json.error || "Önizleme alınamadı");
+        }
+        setApprovePreview(json.preview);
+        setBusy(null);
+        return;
+      }
       await postJson(`/api/panel/ads-publish/packages/${id}`, { action });
       startTransition(() => router.refresh());
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "İşlem başarısız");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmApprove() {
+    if (!approvePreview) return;
+    setBusy(`approve:${approvePreview.packageId}`);
+    setMessage(null);
+    try {
+      await postJson(
+        `/api/panel/ads-publish/packages/${approvePreview.packageId}`,
+        {
+          action: "approve",
+          previewFingerprint: approvePreview.fingerprint,
+        },
+      );
+      setApprovePreview(null);
+      startTransition(() => router.refresh());
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Onay başarısız");
     } finally {
       setBusy(null);
     }
@@ -670,6 +710,15 @@ export default function MetaPublishBoard({
         </section>
       </div>
 
+      {approvePreview ? (
+        <ApprovalPreviewModal
+          preview={approvePreview}
+          busy={busy !== null}
+          onCancel={() => setApprovePreview(null)}
+          onConfirm={() => void confirmApprove()}
+        />
+      ) : null}
+
       <PackageGroup
         title="Onay bekleyenler"
         empty="Bu markada onay bekleyen paket yok."
@@ -730,6 +779,109 @@ function Field({
         />
       )}
     </label>
+  );
+}
+
+function ApprovalPreviewModal({
+  preview,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  preview: ApprovalPreview;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const t = preview.target;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="approve-preview-title"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl"
+      >
+        <h3 id="approve-preview-title" className="text-base font-semibold">
+          Onay önizlemesi
+        </h3>
+        <p className="mt-1 text-sm text-zinc-500">
+          {preview.tenantName} · {preview.title} · v{preview.version}
+        </p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <div>
+            <dt className="text-xs font-medium text-zinc-500">Kampanya</dt>
+            <dd className="font-medium text-zinc-900">
+              {t.campaignName || "—"}{" "}
+              <span className="font-mono text-xs text-zinc-500">
+                {t.campaignId || "yok"}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-zinc-500">Reklam seti</dt>
+            <dd className="font-medium text-zinc-900">
+              {t.adsetName || "—"}{" "}
+              <span className="font-mono text-xs text-zinc-500">
+                {t.adsetId || "yok"}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-zinc-500">Reklam</dt>
+            <dd className="font-medium text-zinc-900">
+              {t.adName || "—"}{" "}
+              <span className="font-mono text-xs text-zinc-500">
+                {t.adId || "yok"}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium text-zinc-500">Etki</dt>
+            <dd>
+              {preview.impact.adsetCount} set · {preview.impact.adCount} reklam
+            </dd>
+          </div>
+        </dl>
+        <ul className="mt-4 divide-y divide-zinc-100 rounded-xl border border-zinc-100">
+          {preview.changes.map((c) => (
+            <li key={c.field} className="px-3 py-2 text-sm">
+              <p className="font-medium text-zinc-900">{c.label}</p>
+              {c.budget ? (
+                <p className="mt-0.5 text-zinc-600">
+                  {c.budget.currentMajor ?? "—"} → {c.budget.proposedMajor ?? "—"}{" "}
+                  TRY/gün
+                </p>
+              ) : (
+                <p className="mt-0.5 text-zinc-600">
+                  <span className="text-zinc-400">{String(c.current ?? "—")}</span>
+                  {" → "}
+                  <span>{String(c.proposed ?? "—")}</span>
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            className={btnSecondary}
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Vazgeç
+          </button>
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            Onayla ve uygula
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

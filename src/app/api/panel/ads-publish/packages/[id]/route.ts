@@ -6,6 +6,7 @@ import {
   submitForApproval,
   updateDraftPackage,
 } from "@/lib/panel/ads-publish/packages";
+import { buildApprovalPreview } from "@/lib/panel/ads-publish/approval-preview";
 import {
   isEditOnlySafeAction,
   packageActionStartsJob,
@@ -15,12 +16,20 @@ import type { AdChangePayload } from "@/lib/panel/ads-publish/types";
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { actor, error } = await requireAdsPublishApi();
   if (error || !actor) return error;
   const { id } = await ctx.params;
+  const url = new URL(request.url);
+  if (url.searchParams.get("preview") === "1") {
+    const preview = await buildApprovalPreview(id);
+    if (!preview) {
+      return NextResponse.json({ error: "Paket bulunamadı" }, { status: 404 });
+    }
+    return NextResponse.json({ preview });
+  }
   const detail = await getPackageDetail(id);
   if (!detail) {
     return NextResponse.json({ error: "Paket bulunamadı" }, { status: 404 });
@@ -41,6 +50,7 @@ export async function POST(
     note?: string;
     title?: string;
     payload?: AdChangePayload;
+    previewFingerprint?: string;
   };
   try {
     body = (await request.json()) as typeof body;
@@ -80,6 +90,7 @@ export async function POST(
         packageId: id,
         decision: action,
         note: body.note,
+        previewFingerprint: body.previewFingerprint,
       });
       return NextResponse.json({ ok: true, package: pack });
     }

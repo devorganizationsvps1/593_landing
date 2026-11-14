@@ -317,6 +317,8 @@ export async function decidePackage(opts: {
   packageId: string;
   decision: "approve" | "reject";
   note?: string;
+  /** Approve için zorunlu — buildApprovalPreview fingerprint. */
+  previewFingerprint?: string;
 }): Promise<AdChangePackageListItem> {
   const pack = await prisma.adChangePackage.findFirst({
     where: { id: opts.packageId },
@@ -341,6 +343,28 @@ export async function decidePackage(opts: {
   });
   if (!version) throw new Error("Paket sürümü bulunamadı");
 
+  let previewJson: Prisma.InputJsonValue | undefined;
+  if (opts.decision === "approve") {
+    const { buildApprovalPreview, previewSummaryForStorage } = await import(
+      "@/lib/panel/ads-publish/approval-preview"
+    );
+    const preview = await buildApprovalPreview(pack.id);
+    if (!preview) {
+      throw new Error("Önizleme üretilemedi; paket onaylanamaz");
+    }
+    if (!opts.previewFingerprint?.trim()) {
+      throw new Error("Önizleme olmadan onaylanamaz");
+    }
+    if (opts.previewFingerprint.trim() !== preview.fingerprint) {
+      throw new Error(
+        "Önizleme bayat veya uyuşmuyor — yeniden önizleyip onaylayın",
+      );
+    }
+    previewJson = previewSummaryForStorage(
+      preview,
+    ) as unknown as Prisma.InputJsonValue;
+  }
+
   const nextStatus = opts.decision === "approve" ? "approved" : "rejected";
 
   await prisma.adChangeApproval.create({
@@ -351,6 +375,7 @@ export async function decidePackage(opts: {
       actorEmail: opts.actor.email,
       decision: opts.decision,
       note: (opts.note ?? "").trim(),
+      ...(previewJson !== undefined ? { previewJson } : {}),
     },
   });
 

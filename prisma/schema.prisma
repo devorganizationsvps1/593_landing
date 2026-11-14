@@ -1283,6 +1283,8 @@ model AdChangeApproval {
   actorEmail String?
   decision   AdChangeDecision
   note       String            @default("")
+  /// Onaylayanın gördüğü önizleme özeti (sürüm + değerler + etki sayıları).
+  previewJson Json?
   createdAt  DateTime          @default(now())
 
   package AdChangePackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
