@@ -105,8 +105,6 @@ export default async function PanelLayout({
       browserPath.startsWith("/ekip/") ||
       browserPath === "/vardiya" ||
       browserPath.startsWith("/vardiya/") ||
-      browserPath === "/performans" ||
-      browserPath.startsWith("/performans/") ||
       browserPath === "/toplantilar" ||
       browserPath.startsWith("/toplantilar/") ||
       browserPath === "/takvim" ||
@@ -133,12 +131,6 @@ export default async function PanelLayout({
               viewOnly
                 ? STAFF_NAV_LINKS.filter((l) => VIEW_ONLY_PATHS.includes(l.href))
                 : STAFF_NAV_LINKS.filter((l) => {
-                    if (l.href === "/performans") {
-                      return (
-                        can(session.user.role, "performance.view") ||
-                        can(session.user.role, "performance.self")
-                      );
-                    }
                     if (
                       l.href === "/meta-yayin" ||
                       l.href === "/google-analiz"

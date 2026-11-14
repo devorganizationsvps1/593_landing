@@ -89,44 +89,22 @@ describe("(b) three write gates — 8 combinations", () => {
     });
   }
 
-  it("only 111 allows live Graph (graphPost allowLive path)", async () => {
-    const graphPost = vi.fn(async () => ({
-      dryRun: false,
-      json: { success: true },
-      res: new Response(),
-    }));
-    vi.doMock("@/lib/integrations/meta/write", () => ({
-      metaAdsWriteEnabled: () => true,
-      graphPost,
-      updateAdStatus: async (
-        id: string,
-        status: string,
-        opts?: { allowLive?: boolean },
-      ) => {
-        if (!opts?.allowLive) {
-          return { dryRun: true, json: {}, res: new Response() };
-        }
-        return graphPost(id, { status });
-      },
-    }));
-
+  it("only 111 yields action=apply (live Graph caller must gate on this)", () => {
+    const applyCases = cases.filter((c) => c.action === "apply");
+    expect(applyCases).toHaveLength(1);
+    expect(applyCases[0]!.name).toBe("111");
     for (const c of cases) {
-      graphPost.mockClear();
       const d = evaluateWriteGates({
         kind: kindK1,
         globalWrite: c.globalWrite,
         tenantWrite: c.tenantWrite,
         tierFlags: { k1: c.k1 },
       });
-      if (d.action === "apply") {
-        await graphPost("ad_1", { status: "PAUSED" });
-        expect(graphPost).toHaveBeenCalledTimes(1);
-      } else {
-        expect(graphPost).not.toHaveBeenCalled();
-      }
+      expect(d.action === "apply").toBe(c.action === "apply");
     }
   });
 });
+
 
 describe("(b) aggregateOutcome", () => {
   it("all applied → applied", () => {

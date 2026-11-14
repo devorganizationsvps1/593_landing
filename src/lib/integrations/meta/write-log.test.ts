@@ -1,9 +1,9 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 
-const auditFn = vi.fn(async () => undefined);
+const auditFn = vi.fn(async (..._a: unknown[]) => undefined);
 
 vi.mock("@/lib/panel/audit", () => ({
-  audit: (...a: unknown[]) => auditFn(...a),
+  audit: (session: unknown, entry: unknown) => auditFn(session, entry),
 }));
 
 import {
@@ -46,7 +46,7 @@ describe("meta write request log", () => {
       graphFetch,
     }));
     vi.doMock("@/lib/panel/audit", () => ({
-      audit: (...a: unknown[]) => auditFn(...a),
+      audit: (session: unknown, entry: unknown) => auditFn(session, entry),
     }));
     const { graphPost } = await import("@/lib/integrations/meta/write");
     const { getRecentMetaWriteLogs: getLogs } = await import(

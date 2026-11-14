@@ -36,7 +36,19 @@ export type Permission =
   /** Yedek alma, indirme, geri yükleme ve silme. */
   | "backups.manage"
   /** WhatsApp anahtarı, şablon durumu, gönderim kaydı ve elle bildirim. */
-  | "notifications.manage";
+  | "notifications.manage"
+  /** Tüm personelin aylık prim puanı. */
+  | "performance.view"
+  /** Kendi aylık prim puanı. */
+  | "performance.self"
+  /** Meta/Google reklam analiz ekranı ve Claude çalıştırma. */
+  | "ads.analyze"
+  /** Meta değişiklik paketi taslağı oluşturma / düzenleme. */
+  | "ads.publish.edit"
+  /** Meta paketini Onayla ve Uygula. */
+  | "ads.publish.approve"
+  /** Kreatif sürüm onayı. */
+  | "ads.creative.approve";
 
 const ROLE_PERMISSIONS: Record<PanelRole, readonly Permission[]> = {
   admin: [
@@ -55,6 +67,12 @@ const ROLE_PERMISSIONS: Record<PanelRole, readonly Permission[]> = {
     "suggestions.view",
     "backups.manage",
     "notifications.manage",
+    "performance.view",
+    "performance.self",
+    "ads.analyze",
+    "ads.publish.edit",
+    "ads.publish.approve",
+    "ads.creative.approve",
   ],
   team: [
     "staff.access",
@@ -62,6 +80,10 @@ const ROLE_PERMISSIONS: Record<PanelRole, readonly Permission[]> = {
     "brands.viewPanelPassword",
     "board.deleteCards",
     "meetings.manage",
+    "performance.self",
+    "ads.analyze",
+    "ads.publish.edit",
+    "ads.creative.approve",
   ],
   client: [],
 };
@@ -88,6 +110,12 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "suggestions.view": "Öneri kutusuna gelenleri görme",
   "backups.manage": "Yedek alma ve geri yükleme",
   "notifications.manage": "Bildirim yönetimi (WhatsApp, şablonlar, kayıtlar)",
+  "performance.view": "Tüm personelin performans puanı",
+  "performance.self": "Kendi performans puanı",
+  "ads.analyze": "Meta reklam analizi (Claude)",
+  "ads.publish.edit": "Meta yayın paketi düzenleme",
+  "ads.publish.approve": "Meta paketini onayla ve uygula",
+  "ads.creative.approve": "Kreatif sürüm onayı",
 };
 
 export function isPanelRole(role: unknown): role is PanelRole {
