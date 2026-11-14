@@ -29,6 +29,10 @@ vi.mock("@/lib/integrations/tokens", () => ({
   useMockPanelData: () => false,
 }));
 
+vi.mock("@/lib/panel/audit", () => ({
+  audit: vi.fn(async () => undefined),
+}));
+
 describe("dry-run E2E acceptance", () => {
   const prevWrite = process.env.META_ADS_WRITE;
 

@@ -17,7 +17,10 @@ export type AuditEntity =
   | "backup"
   | "notification"
   | "office_shift"
-  | "ad_change";
+  | "ad_change"
+  | "ad_analysis"
+  | "creative_asset"
+  | "meta_write";
 
 type AuditSession = {
   user: { id?: string | null; email?: string | null };

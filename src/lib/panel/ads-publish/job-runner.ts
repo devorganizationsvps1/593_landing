@@ -260,6 +260,9 @@ export async function runAdChangeJob(
 
         const result = await applyAllowedStep(step.kind, payload, {
           allowLive: true,
+          tenantId: job.package.tenantId,
+          jobId: job.id,
+          stepId: step.id,
         });
         if (result.rejected) {
           await prisma.adChangeJobStep.update({
@@ -577,7 +580,12 @@ async function assertStatusNotStale(payload: AdChangePayload): Promise<void> {
 async function applyAllowedStep(
   kind: string,
   payload: AdChangePayload,
-  opts: { allowLive: boolean },
+  opts: {
+    allowLive: boolean;
+    tenantId?: string;
+    jobId?: string;
+    stepId?: string;
+  },
 ): Promise<
   Record<string, unknown> & {
     dryRun?: boolean;
@@ -588,7 +596,12 @@ async function applyAllowedStep(
 > {
   const change = payload.changes.find((c) => c.field === kind);
   const proposed = change?.proposed;
-  const live = { allowLive: opts.allowLive };
+  const live = {
+    allowLive: opts.allowLive,
+    tenantId: opts.tenantId,
+    jobId: opts.jobId,
+    stepId: opts.stepId,
+  };
 
   if (kind === "ad.status" && payload.target.adId) {
     const status =
