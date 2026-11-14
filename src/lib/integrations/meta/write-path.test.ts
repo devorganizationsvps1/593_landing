@@ -56,8 +56,9 @@ describe("Meta write path = graphPost only", () => {
       resolve(process.cwd(), "src/lib/panel/ads-publish/job-runner.ts"),
       "utf8",
     );
-    expect(src).toMatch(/from "@/lib\/integrations\/meta\/write"/);
+    expect(src.includes('from "@/lib/integrations/meta/write"')).toBe(true);
     expect(src).not.toMatch(/method:\s*["']POST["']/);
     expect(src).not.toMatch(/graph\.facebook\.com/);
   });
 });
+
