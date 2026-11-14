@@ -16,29 +16,44 @@ function walkTs(dir: string, out: string[] = []): string[] {
 }
 
 describe("Meta write path = graphPost only", () => {
-  it("no method:POST outside write.ts graphPost", () => {
-    const root = resolve(process.cwd(), "src/lib/integrations/meta");
+  it("no method:POST outside write.ts graphPost (meta + ads-publish)", () => {
+    const roots = [
+      resolve(process.cwd(), "src/lib/integrations/meta"),
+      resolve(process.cwd(), "src/lib/panel/ads-publish"),
+    ];
     const offenders: string[] = [];
-    for (const file of walkTs(root)) {
-      const rel = file.replace(process.cwd() + "/", "");
-      if (rel.endsWith("write.ts") || rel.endsWith("write-log.ts")) continue;
-      const src = readFileSync(file, "utf8");
-      if (/method:\s*["']POST["']/.test(src)) {
-        offenders.push(rel);
-      }
-      // Ham fetch ile Graph yazımı
-      if (
-        /fetch\([^)]*graph\.facebook\.com[^)]*\)[\s\S]{0,80}method:\s*["']POST["']/.test(
-          src,
-        )
-      ) {
-        offenders.push(rel + " (fetch POST)");
+    for (const root of roots) {
+      for (const file of walkTs(root)) {
+        const rel = file.replace(process.cwd() + "/", "");
+        if (rel.endsWith("write.ts") || rel.endsWith("write-log.ts")) continue;
+        const src = readFileSync(file, "utf8");
+        // Meta Graph yazımı: POST + graph.facebook.com aynı dosyada
+        if (
+          /graph\.facebook\.com/.test(src) &&
+          /method:\s*["']POST["']/.test(src)
+        ) {
+          offenders.push(rel + " (graph+POST)");
+        }
+        if (
+          /fetch\([^)]*graph\.facebook\.com[^)]*\)[\s\S]{0,120}method:\s*["'](POST|PUT|PATCH|DELETE)["']/.test(
+            src,
+          )
+        ) {
+          offenders.push(rel + " (fetch write)");
+        }
+        // integrations/meta altında ham method:POST yasak (yalnızca write.ts)
+        if (
+          root.endsWith("/meta") &&
+          /method:\s*["']POST["']/.test(src)
+        ) {
+          offenders.push(rel);
+        }
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it("write helpers call graphPost", () => {
+  it("write helpers call graphPost; only graphPost sets POST", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/lib/integrations/meta/write.ts"),
       "utf8",
@@ -46,7 +61,8 @@ describe("Meta write path = graphPost only", () => {
     expect(src).toMatch(/export async function graphPost/);
     expect(src).toMatch(/return graphPost\(adId/);
     expect(src).toMatch(/return graphPost\(adsetId/);
-    expect(src).toMatch(/method:\s*"POST"/);
+    const postMatches = src.match(/method:\s*"POST"/g) ?? [];
+    expect(postMatches).toHaveLength(1);
     // Okuma yolları graphFetch (GET) — yazma değil
     expect(src).toMatch(/fetchLiveAdSnapshot[\s\S]*graphFetch/);
   });
