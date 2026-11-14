@@ -96,4 +96,6 @@ export type AdChangePackageListItem = {
   createdByName: string | null;
   /** Simüle/atlanan adımların neden özeti (ekranda). */
   outcomeNote?: string | null;
+  /** Running adım zaman aşımını aştı — kurtarma taraması bekleniyor. */
+  isStuck?: boolean;
 };

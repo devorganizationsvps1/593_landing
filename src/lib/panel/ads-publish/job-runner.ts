@@ -1,7 +1,10 @@
 /**
  * Onaylanan AdChangeJob yürütücüsü.
  * (a) claim + idempotency + status stale
- * (b) üç kapı, simulated/skipped nedenleri, partial, stuck recovery
+ * (b) üç kapı, simulated/skipped, partial, stuck recovery
+ * (c) bütçe bayatlığı / sınır / günlük bütçe yok
+ *
+ * Job/adım status olarak "succeeded" YAZILMAZ (legacy enum değeri kalır).
  */
 import { prisma } from "@/lib/db";
 import type { AdChangePayload } from "@/lib/panel/ads-publish/types";
@@ -25,11 +28,18 @@ import {
   statusStaleMessage,
 } from "@/lib/panel/ads-publish/stale-check";
 import {
+  compareLiveToPackage,
   isStepRunningStale,
-  liveMatchesProposed,
   resolveStuckStep,
   stepRunningTimeoutMs,
+  StuckStaleError,
 } from "@/lib/panel/ads-publish/step-recovery";
+import {
+  assertLiveBudgetBeforeApply,
+  BudgetCheckError,
+} from "@/lib/panel/ads-publish/budget-check";
+import { packageBudgetToMetaMinor } from "@/lib/panel/ads-publish/budget-units";
+import { mapStepStatusForAggregate } from "@/lib/panel/ads-publish/job-status-labels";
 
 function asPayload(raw: unknown): AdChangePayload {
   return (raw ?? {}) as AdChangePayload;
@@ -67,6 +77,7 @@ export async function claimAdChangeJobStep(stepId: string): Promise<boolean> {
   return result.count === 1;
 }
 
+/** Zamanlayıcı / kuyruk: queued + takılı running. */
 export async function processQueuedAdChangeJobs(limit = 5): Promise<number> {
   const jobs = await prisma.adChangeJob.findMany({
     where: { status: "queued" },
@@ -79,7 +90,6 @@ export async function processQueuedAdChangeJobs(limit = 5): Promise<number> {
     await runAdChangeJob(job.id);
     n++;
   }
-  // Takılı running job’ları da kurtar
   const stuck = await prisma.adChangeJob.findMany({
     where: { status: "running" },
     orderBy: { updatedAt: "asc" },
@@ -128,6 +138,7 @@ export async function runAdChangeJob(
 
   try {
     await assertStatusNotStale(payload);
+    await assertLiveBudgetBeforeApply(payload);
 
     let steps = job.steps;
     if (steps.length === 0) {
@@ -170,7 +181,7 @@ export async function runAdChangeJob(
       });
     }
 
-    await recoverStuckSteps(steps, payload);
+    await recoverStuckSteps(job.packageId, job.id, steps, payload);
 
     steps = await prisma.adChangeJobStep.findMany({
       where: { jobId: job.id },
@@ -182,7 +193,7 @@ export async function runAdChangeJob(
         step.status === "applied" ||
         step.status === "simulated" ||
         step.status === "skipped" ||
-        step.status === "succeeded"
+        step.status === "succeeded" // legacy: dokunma, yeniden yazma
       ) {
         continue;
       }
@@ -228,20 +239,23 @@ export async function runAdChangeJob(
           continue;
         }
 
-        // apply — Graph yalnızca burada (allowLive)
         const result = await applyAllowedStep(step.kind, payload, {
           allowLive: true,
         });
-        if (result.skipped) {
+        if (result.rejected) {
           await prisma.adChangeJobStep.update({
             where: { id: step.id },
             data: {
-              status: "skipped",
+              status: "failed",
+              error: String(result.reason || "rejected"),
               result: result as object,
               finishedAt: new Date(),
             },
           });
-          continue;
+          throw new BudgetCheckError(
+            String(result.reason || "rejected"),
+            (result.code as "no_daily_budget") || "invalid_budget",
+          );
         }
         await prisma.adChangeJobStep.update({
           where: { id: step.id },
@@ -277,20 +291,12 @@ export async function runAdChangeJob(
       where: { jobId: job.id },
       select: { status: true },
     });
-    const outcome = aggregateOutcome(
-      finalSteps.map((s) => {
-        if (s.status === "succeeded") return "applied"; // legacy map for agg only if mixed old — prefer treat as applied? History stays. New code won't write succeeded.
-        if (
-          s.status === "applied" ||
-          s.status === "simulated" ||
-          s.status === "skipped" ||
-          s.status === "failed"
-        ) {
-          return s.status;
-        }
-        return "skipped";
-      }),
+    const mapped = finalSteps.map((s) => mapStepStatusForAggregate(s.status));
+    // legacy_succeeded asla applied sayılmaz → partial
+    const forAgg = mapped.map((s) =>
+      s === "legacy_succeeded" ? ("simulated" as const) : s,
     );
+    const outcome = aggregateOutcome(forAgg);
 
     await prisma.adChangeJob.update({
       where: { id: job.id },
@@ -304,6 +310,24 @@ export async function runAdChangeJob(
     console.info("[ad_change.job]", job.id, outcome, job.package.title);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    const needsReapprove =
+      err instanceof StuckStaleError ||
+      (err instanceof BudgetCheckError && err.code === "stale_budget") ||
+      /stale|yeniden onaya/i.test(message);
+    if (needsReapprove) {
+      await prisma.adChangeJob.update({
+        where: { id: job.id },
+        data: { status: "failed", lastError: message, finishedAt: new Date() },
+      });
+      await prisma.adChangePackage.update({
+        where: { id: job.packageId },
+        data: { status: "pending" },
+      });
+      console.warn("[ad_change.job]", job.id, "re-approve", message);
+      return;
+    }
+
     await prisma.adChangeJob.update({
       where: { id: job.id },
       data: { status: "failed", lastError: message, finishedAt: new Date() },
@@ -317,6 +341,8 @@ export async function runAdChangeJob(
 }
 
 async function recoverStuckSteps(
+  packageId: string,
+  jobId: string,
   steps: Array<{
     id: string;
     kind: string;
@@ -332,19 +358,23 @@ async function recoverStuckSteps(
     if (!isStepRunningStale(step.startedAt, now, timeoutMs)) continue;
 
     const change = payload.changes.find((c) => c.field === step.kind);
-    let liveMatches = false;
+    let compare = { matchesProposed: false, matchesInitial: false };
     try {
-      liveMatches = await liveMatchesProposed({
+      compare = await compareLiveToPackage({
         kind: step.kind,
         payload,
         proposed: change?.proposed ?? null,
+        initial: change?.current ?? null,
       });
     } catch (err) {
       console.warn("[ad_change.recover]", step.id, err);
-      liveMatches = false;
     }
 
-    const resolution = resolveStuckStep({ liveMatches });
+    const resolution = resolveStuckStep({
+      liveMatchesProposed: compare.matchesProposed,
+      liveMatchesInitial: compare.matchesInitial,
+    });
+
     if (resolution === "mark_applied") {
       await prisma.adChangeJobStep.update({
         where: { id: step.id },
@@ -358,8 +388,10 @@ async function recoverStuckSteps(
           finishedAt: new Date(),
         },
       });
-    } else {
-      // Yeniden sahiplen: pending → sonraki döngüde tek claim
+      continue;
+    }
+
+    if (resolution === "reclaim_pending") {
       await prisma.adChangeJobStep.updateMany({
         where: { id: step.id, status: "running" },
         data: {
@@ -369,11 +401,30 @@ async function recoverStuckSteps(
           result: {
             recovered: true,
             reclaimed: true,
-            note: "Stuck running; Meta differs — reclaim for single apply",
+            note: "Stuck running; Meta still at initial — reclaim for single apply",
           },
         },
       });
+      continue;
     }
+
+    // stale_reapprove
+    await prisma.adChangeJobStep.update({
+      where: { id: step.id },
+      data: {
+        status: "failed",
+        error: "Stale during recovery: Meta matches neither proposed nor initial",
+        result: {
+          recovered: true,
+          stale: true,
+          note: "Stuck running; Meta drifted — package returned to approval",
+        },
+        finishedAt: new Date(),
+      },
+    });
+    throw new StuckStaleError(
+      `Takılı adım bayat: Meta ne önerilen ne başlangıç değerde (job=${jobId}, package=${packageId}). Yeniden onaya sunun.`,
+    );
   }
 }
 
@@ -407,7 +458,14 @@ async function applyAllowedStep(
   kind: string,
   payload: AdChangePayload,
   opts: { allowLive: boolean },
-): Promise<Record<string, unknown> & { dryRun?: boolean; skipped?: boolean }> {
+): Promise<
+  Record<string, unknown> & {
+    dryRun?: boolean;
+    rejected?: boolean;
+    reason?: string;
+    code?: string;
+  }
+> {
   const change = payload.changes.find((c) => c.field === kind);
   const proposed = change?.proposed;
   const live = { allowLive: opts.allowLive };
@@ -425,16 +483,21 @@ async function applyAllowedStep(
     return { dryRun: r.dryRun, json: r.json };
   }
   if (kind === "adset.daily_budget" && payload.target.adsetId) {
-    const tryAmount = Number(proposed);
-    if (!Number.isFinite(tryAmount) || tryAmount <= 0) {
-      return { skipped: true, reason: "invalid budget" };
+    const proposedMinor = packageBudgetToMetaMinor(proposed);
+    if (proposedMinor === null || proposedMinor <= 0) {
+      return {
+        rejected: true,
+        code: "invalid_budget",
+        reason: "Geçersiz günlük bütçe değeri.",
+      };
     }
+    // Günlük bütçe yokluğu assertLiveBudgetBeforeApply’da; burada yaz.
     const r = await updateAdsetDailyBudget(
       payload.target.adsetId,
-      Math.round(tryAmount * 100),
+      proposedMinor,
       live,
     );
-    return { dryRun: r.dryRun, json: r.json };
+    return { dryRun: r.dryRun, json: r.json, minor: proposedMinor };
   }
 
   return {
@@ -445,5 +508,4 @@ async function applyAllowedStep(
   };
 }
 
-// Re-export for tests / callers that used old name
 export { tierFlagsFromTenant };

@@ -6,10 +6,17 @@ import type {
   AdChangePackageListItem,
   AdChangePayload,
 } from "@/lib/panel/ads-publish/types";
+import { assertPayloadBudgetLimits } from "@/lib/panel/ads-publish/budget-check";
+import { isStepRunningStale } from "@/lib/panel/ads-publish/step-recovery";
 
 function outcomeNoteFromJobs(
   jobs?: Array<{
-    steps: Array<{ result: unknown }>;
+    status: string;
+    steps: Array<{
+      status: string;
+      startedAt: Date | null;
+      result: unknown;
+    }>;
   }>,
 ): string | null {
   const latest = jobs?.[0];
@@ -23,6 +30,20 @@ function outcomeNoteFromJobs(
   return [...new Set(labels)].join(" · ");
 }
 
+function isJobStuck(
+  jobs?: Array<{
+    status: string;
+    steps: Array<{ status: string; startedAt: Date | null }>;
+  }>,
+): boolean {
+  const latest = jobs?.[0];
+  if (!latest) return false;
+  if (latest.status !== "running" && latest.status !== "queued") return false;
+  return latest.steps.some(
+    (s) => s.status === "running" && isStepRunningStale(s.startedAt),
+  );
+}
+
 function serializeListItem(row: {
   id: string;
   title: string;
@@ -34,8 +55,16 @@ function serializeListItem(row: {
   updatedAt: Date;
   tenant: { id: string; name: string; slug: string };
   createdBy: { name: string | null; email: string } | null;
-  jobs?: Array<{ steps: Array<{ result: unknown }> }>;
+  jobs?: Array<{
+    status: string;
+    steps: Array<{
+      status: string;
+      startedAt: Date | null;
+      result: unknown;
+    }>;
+  }>;
 }): AdChangePackageListItem {
+  const stuck = isJobStuck(row.jobs);
   return {
     id: row.id,
     title: row.title || "Başlıksız paket",
@@ -51,7 +80,10 @@ function serializeListItem(row: {
     createdByName: row.createdBy
       ? (row.createdBy.name ?? "").trim() || row.createdBy.email
       : null,
-    outcomeNote: outcomeNoteFromJobs(row.jobs),
+    outcomeNote: stuck
+      ? "Takıldı — kurtarma taraması bekleniyor"
+      : outcomeNoteFromJobs(row.jobs),
+    isStuck: stuck,
   };
 }
 
@@ -70,8 +102,12 @@ export async function listAdChangePackages(opts?: {
       jobs: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        include: {
-          steps: { orderBy: { sortOrder: "asc" }, select: { result: true } },
+        select: {
+          status: true,
+          steps: {
+            orderBy: { sortOrder: "asc" },
+            select: { result: true, status: true, startedAt: true },
+          },
         },
       },
     },
@@ -93,6 +129,7 @@ export async function createDraftPackage(opts: {
     select: { id: true, name: true, slug: true },
   });
   if (!tenant) throw new Error("Marka bulunamadı");
+  assertPayloadBudgetLimits(opts.payload);
 
   const created = await prisma.adChangePackage.create({
     data: {
@@ -147,6 +184,7 @@ export async function updateDraftPackage(opts: {
   if (pack.status !== "draft" && pack.status !== "rejected") {
     throw new Error("Yalnızca taslak veya reddedilen paket düzenlenir");
   }
+  assertPayloadBudgetLimits(opts.payload);
 
   const nextVersion = pack.currentVersion + 1;
   await prisma.adChangePackageVersion.create({

@@ -216,7 +216,7 @@ describe("(a) enqueue same version → single job", () => {
   });
 
   it("second approve request returns same jobId without second create", async () => {
-    findUnique.mockResolvedValue({ id: "job_existing", status: "succeeded" });
+    findUnique.mockResolvedValue({ id: "job_existing", status: "applied" });
     const { enqueueAndRunApprovedJob } = await import(
       "@/lib/panel/ads-publish/enqueue-approved-job"
     );

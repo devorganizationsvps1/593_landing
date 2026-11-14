@@ -119,9 +119,28 @@ export function startDailySyncScheduler() {
   void tick();
   void hourlyTick();
   void backupTick();
+  let adChangeInFlight = false;
+  const adChangeTick = async () => {
+    if (adChangeInFlight) return;
+    adChangeInFlight = true;
+    try {
+      const { processQueuedAdChangeJobs } = await import(
+        "@/lib/panel/ads-publish/job-runner"
+      );
+      await processQueuedAdChangeJobs(10);
+    } catch (err) {
+      console.error("[ad-change job scheduler]", err);
+    } finally {
+      adChangeInFlight = false;
+    }
+  };
+
   setInterval(() => {
     void tick();
     void hourlyTick();
     void backupTick();
+    void adChangeTick();
   }, TICK_MS);
+
+  void adChangeTick();
 }

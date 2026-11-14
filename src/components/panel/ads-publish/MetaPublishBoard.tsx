@@ -772,7 +772,7 @@ function PackageGroup({
                 <p className="truncate text-sm font-medium">{p.title}</p>
                 <p className="text-xs text-zinc-500">
                   {p.tenantName} · v{p.currentVersion} ·{" "}
-                  {packageStatusLabel(p.status)}
+                  {p.isStuck ? "Takıldı" : packageStatusLabel(p.status)}
                   {p.createdByName ? ` · ${p.createdByName}` : ""}
                 </p>
                 {p.outcomeNote ? (

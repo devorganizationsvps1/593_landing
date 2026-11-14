@@ -5,7 +5,7 @@ import {
   stepRunningTimeoutMs,
 } from "@/lib/panel/ads-publish/step-recovery";
 
-describe("(b) stuck step recovery", () => {
+describe("(b) stuck step recovery — three outcomes", () => {
   it("timeout comes from AD_CHANGE_STEP_RUNNING_TIMEOUT_MS", () => {
     const prev = process.env.AD_CHANGE_STEP_RUNNING_TIMEOUT_MS;
     process.env.AD_CHANGE_STEP_RUNNING_TIMEOUT_MS = "120000";
@@ -19,24 +19,54 @@ describe("(b) stuck step recovery", () => {
     expect(isStepRunningStale(new Date(), new Date(), 300_000)).toBe(false);
   });
 
-  it("if Meta already matches proposed → mark_applied (no double write)", () => {
-    expect(resolveStuckStep({ liveMatches: true })).toBe("mark_applied");
+  it("live = proposed → mark_applied", () => {
+    expect(
+      resolveStuckStep({
+        liveMatchesProposed: true,
+        liveMatchesInitial: false,
+      }),
+    ).toBe("mark_applied");
+    // proposed wins even if also matches initial (already applied)
+    expect(
+      resolveStuckStep({
+        liveMatchesProposed: true,
+        liveMatchesInitial: true,
+      }),
+    ).toBe("mark_applied");
   });
 
-  it("if Meta differs → reclaim_pending then single apply", () => {
-    expect(resolveStuckStep({ liveMatches: false })).toBe("reclaim_pending");
+  it("live = initial (not proposed) → reclaim_pending", () => {
+    expect(
+      resolveStuckStep({
+        liveMatchesProposed: false,
+        liveMatchesInitial: true,
+      }),
+    ).toBe("reclaim_pending");
   });
 
-  it("die mid-step scenario: reclaim then claim once (source)", async () => {
+  it("live matches neither → stale_reapprove", () => {
+    expect(
+      resolveStuckStep({
+        liveMatchesProposed: false,
+        liveMatchesInitial: false,
+      }),
+    ).toBe("stale_reapprove");
+  });
+
+  it("scheduler scans stuck jobs (source)", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
-    const src = readFileSync(
+    const sched = readFileSync(
+      resolve(process.cwd(), "src/lib/panel/daily-sync-scheduler.ts"),
+      "utf8",
+    );
+    expect(sched).toMatch(/processQueuedAdChangeJobs/);
+    expect(sched).toMatch(/adChangeTick/);
+    const runner = readFileSync(
       resolve(process.cwd(), "src/lib/panel/ads-publish/job-runner.ts"),
       "utf8",
     );
-    expect(src).toMatch(/recoverStuckSteps/);
-    expect(src).toMatch(/alreadyAtProposed/);
-    expect(src).toMatch(/reclaim/);
-    expect(src).toMatch(/resume:\s*true/);
+    expect(runner).toMatch(/stale_reapprove|StuckStaleError/);
+    expect(runner).toMatch(/status:\s*"pending"/); // package re-approve
   });
 });
