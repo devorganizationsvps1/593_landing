@@ -1,10 +1,13 @@
 /** Shared nav paths — no React components (safe for RSC → client props). */
+import { can, type Permission } from "@/lib/panel/permissions";
 
 export type PanelNavLink = {
   href: string;
   label: string;
   /** Platform sayfası — markada bu entegrasyon kapalıysa menüde gizlenir. */
   integration?: string;
+  /** Yalnızca bu yetkiye sahip rollerde menüde görünür. */
+  permission?: Permission;
 };
 
 export const TENANT_NAV_LINKS: PanelNavLink[] = [
@@ -29,9 +32,17 @@ export const STAFF_NAV_LINKS: PanelNavLink[] = [
   { href: "/audit", label: "İşlem kaydı" },
   { href: "/oneriler", label: "Öneriler" },
   { href: "/yedekler", label: "Yedekler" },
+  { href: "/sunucular", label: "Sunucu yönetimi", permission: "servers.manage" },
   { href: "/settings", label: "Ayarlar" },
   { href: "/vardiya", label: "Shift" },
 ];
+
+/** Role göre staff menüsü — yetki isteyen bağlantılar yetkisiz rolde hiç çıkmaz. */
+export function staffNavLinks(role: string | null | undefined): PanelNavLink[] {
+  return STAFF_NAV_LINKS.filter((l) => !l.permission || can(role, l.permission)).map(
+    ({ href, label }) => ({ href, label }),
+  );
+}
 
 /** Markada kapatılan platformların sayfalarını menüden çıkarır. */
 export function tenantNavLinks(disabled: readonly string[]): PanelNavLink[] {
@@ -63,6 +74,7 @@ export function staffPageTitle(rawPath: string): string {
   if (matches(path, "/oneriler")) return "Öneri kutusu";
   if (matches(path, "/audit")) return "İşlem kaydı";
   if (matches(path, "/yedekler")) return "Yedekler";
+  if (matches(path, "/sunucular")) return "Sunucu yönetimi";
   if (matches(path, "/brands/sync")) return "Veri çekimi";
   if (path.startsWith("/brands/")) return "Marka detayı";
   return "Markalar";

@@ -1155,3 +1155,73 @@ model Backup {
 
   @@index([createdAt])
 }
+
+/// Sunucu yönetimi — Dokploy'un bilmediği, elle girilen bilgiler.
+/// key = "<kurulum>:<host | Dokploy serverId>" (bkz. lib/servers/config.ts).
+model ManagedServer {
+  key         String    @id
+  /// VPS'in sağlayıcıdan alındığı tarih (Dokploy yalnızca eklenme tarihini bilir).
+  purchasedAt DateTime? @db.Date
+  provider    String?
+  monthlyCost Decimal?  @db.Decimal(10, 2)
+  currency    String    @default("USD")
+  /// Ödemenin yenilendiği ay günü (1–31).
+  renewalDay  Int?
+  note        String?
+  updatedAt   DateTime  @updatedAt
+}
+
+/// Sunucu ölçümü — zamanlayıcı ~5 dakikada bir yazar, 30 gün tutulur.
+model ServerSample {
+  id          String   @id @default(cuid())
+  serverKey   String
+  at          DateTime @default(now())
+  /// Ölçüm alınabildi mi (false = sunucuya / metrik ajanına ulaşılamadı).
+  up          Boolean
+  cpuPct      Float?
+  memPct      Float?
+  memTotalGb  Float?
+  diskPct     Float?
+  diskTotalGb Float?
+  /// Açılıştan beri toplam MiB (sayaç) — hız, ardışık iki ölçümün farkıdır.
+  netInMb     Float?
+  netOutMb    Float?
+  uptimeSec   Int?
+
+  @@index([serverKey, at])
+}
+
+/// Proje domainine dışarıdan HTTP + SSL kontrolü. 14 gün tutulur.
+model ServerSiteCheck {
+  id           String    @id @default(cuid())
+  serverKey    String
+  host         String
+  at           DateTime  @default(now())
+  ok           Boolean
+  status       Int?
+  ms           Int?
+  sslExpiresAt DateTime?
+  error        String?
+
+  @@index([serverKey, host, at])
+}
+
+/// Olay akışı + uyarı tekilleştirme. Açık olay (resolvedAt = null) aynı
+/// serverKey + kind + subject için tektir; koşul düzelince kapatılır.
+model ServerEvent {
+  id         String    @id @default(cuid())
+  serverKey  String
+  /// server_down | disk_high | site_down | ssl_expiring | deploy_failed | cleanup | renewal
+  kind       String
+  /// Olayın konusu (domain, deployment id…); sunucu geneli için "".
+  subject    String    @default("")
+  /// info | warn | critical
+  severity   String    @default("info")
+  title      String
+  detail     String?
+  at         DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([serverKey, at])
+  @@index([serverKey, kind, subject, resolvedAt])
+}

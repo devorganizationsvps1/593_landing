@@ -25,6 +25,7 @@ import {
   Settings,
   Users,
   X,
+  Server,
   type LucideIcon,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
@@ -63,6 +64,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/audit": History,
   "/settings": Settings,
   "/oneriler": Lightbulb,
+  "/sunucular": Server,
 };
 
 function iconFor(href: string): LucideIcon {

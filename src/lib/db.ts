@@ -6,7 +6,7 @@ import {
   type TenantType,
 } from "@prisma/client";
 
-const PRISMA_GEN = 5;
+const PRISMA_GEN = 6;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;

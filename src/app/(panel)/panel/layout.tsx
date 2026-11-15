@@ -7,7 +7,7 @@ import AuthSessionProvider from "@/components/panel/AuthSessionProvider";
 import SignOutButton from "@/components/panel/SignOutButton";
 import PanelShell from "@/components/panel/ds/PanelShell";
 import {
-  STAFF_NAV_LINKS,
+  staffNavLinks,
   tenantNavLinks,
 } from "@/components/panel/ds/nav-config";
 import { prisma } from "@/lib/db";
@@ -98,7 +98,12 @@ export default async function PanelLayout({
       browserPath.startsWith("/settings") ||
       browserPath === "/oneriler" ||
       browserPath === "/yedekler" ||
+      browserPath === "/sunucular" ||
       browserPath === "/bildirimler";
+    // Sunucu uyarısı WhatsApp şablonunun butonu /brands/{{1}} kalıbındadır.
+    if (browserPath === "/brands/sunucu-yonetimi") {
+      redirect("/sunucular");
+    }
     if (!staffOk) {
       redirect("/brands");
     }
@@ -113,8 +118,8 @@ export default async function PanelLayout({
             variant="staff"
             nav={
               viewOnly
-                ? STAFF_NAV_LINKS.filter((l) => VIEW_ONLY_PATHS.includes(l.href))
-                : STAFF_NAV_LINKS
+                ? staffNavLinks(null).filter((l) => VIEW_ONLY_PATHS.includes(l.href))
+                : staffNavLinks(session.user.role)
             }
             wide={browserPath === "/takvim" || browserPath === "/vardiya"}
             userEmail={session.user.email ?? ""}

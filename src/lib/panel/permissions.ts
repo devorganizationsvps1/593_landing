@@ -36,7 +36,9 @@ export type Permission =
   /** Yedek alma, indirme, geri yükleme ve silme. */
   | "backups.manage"
   /** WhatsApp anahtarı, şablon durumu, gönderim kaydı ve elle bildirim. */
-  | "notifications.manage";
+  | "notifications.manage"
+  /** Sunucu yönetimi: VPS/proje izleme, Docker temizliği. */
+  | "servers.manage";
 
 const ROLE_PERMISSIONS: Record<PanelRole, readonly Permission[]> = {
   admin: [
@@ -55,6 +57,7 @@ const ROLE_PERMISSIONS: Record<PanelRole, readonly Permission[]> = {
     "suggestions.view",
     "backups.manage",
     "notifications.manage",
+    "servers.manage",
   ],
   team: [
     "staff.access",
@@ -88,6 +91,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "suggestions.view": "Öneri kutusuna gelenleri görme",
   "backups.manage": "Yedek alma ve geri yükleme",
   "notifications.manage": "Bildirim yönetimi (WhatsApp, şablonlar, kayıtlar)",
+  "servers.manage": "Sunucu yönetimi (izleme, Docker temizliği)",
 };
 
 export function isPanelRole(role: unknown): role is PanelRole {
