@@ -1,7 +1,15 @@
 "use client";
 
 import {
+  Activity,
   AlertTriangle,
+  ArrowLeft,
+  Bell,
+  ChevronRight,
+  Cpu,
+  FolderKanban,
+  HardDrive,
+  MemoryStick,
   CheckCircle2,
   CircleHelp,
   Database,
@@ -88,11 +96,13 @@ async function post(body: unknown): Promise<{ ok: boolean; data: Record<string, 
 /* ───────── parçalar ───────── */
 
 function Meter({
+  icon,
   label,
   value,
   tone,
   sub,
 }: {
+  icon?: React.ReactNode;
   label: string;
   value: number | null | undefined;
   tone: Tone;
@@ -103,7 +113,10 @@ function Meter({
   return (
     <div className="rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-panel-fg-secondary">{label}</span>
+        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-panel-fg-secondary">
+          {icon}
+          {label}
+        </span>
         <span className={`inline-flex items-center gap-1 text-xs font-semibold ${t.text}`}>
           <t.Icon className="size-3.5" aria-hidden />
           {word}
@@ -155,7 +168,7 @@ const KIND_LABEL: Record<ServiceInfo["kind"], string> = {
 
 function KindIcon({ kind }: { kind: ServiceInfo["kind"] }) {
   const Icon = kind === "application" ? Package : kind === "compose" ? Layers : Database;
-  return <Icon className="size-4 shrink-0 text-panel-fg-muted" aria-hidden />;
+  return <Icon className="size-5 shrink-0" aria-hidden />;
 }
 
 function SiteCell({ host, site }: { host: string; site: SiteStatus | undefined }) {
@@ -193,55 +206,178 @@ function SiteCell({ host, site }: { host: string; site: SiteStatus | undefined }
   );
 }
 
-function ProjectCard({ project, sites }: { project: ProjectInfo; sites: Record<string, SiteStatus> }) {
+/** Proje kimlik renkleri — yalnızca avatar zemini; beyaz harfle kontrastlı. */
+const HUES = ["#2563eb", "#7c3aed", "#be185d", "#c2410c", "#047857", "#0e7490", "#4f46e5", "#a16207"];
+function hueOf(name: string): string {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return HUES[h % HUES.length];
+}
+
+function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
   return (
-    <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-panel-border px-5 py-4">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-panel-fg">{project.name}</h3>
-          {project.description ? <p className="truncate text-xs text-panel-fg-secondary">{project.description}</p> : null}
+    <span
+      aria-hidden
+      className={`flex shrink-0 items-center justify-center rounded-xl font-bold uppercase text-white ${
+        size === "lg" ? "size-14 text-2xl" : "size-11 text-lg"
+      }`}
+      style={{ background: hueOf(name) }}
+    >
+      {name.trim().charAt(0) || "?"}
+    </span>
+  );
+}
+
+function projectHealth(project: ProjectInfo, sites: Record<string, SiteStatus>): { tone: Tone; label: string } {
+  const hosts = project.services.flatMap((s) => s.domains.map((d) => d.host));
+  const siteDown = hosts.filter((h) => sites[h] && !sites[h].ok).length;
+  const errors = project.services.filter((s) => s.status === "error" || s.deploys[0]?.status === "error").length;
+  if (siteDown) return { tone: "critical", label: `${siteDown} site açılmıyor` };
+  if (errors) return { tone: "critical", label: `${errors} serviste hata` };
+  if (project.services.some((s) => s.status === "running")) return { tone: "warn", label: "Deploy ediliyor" };
+  if (project.services.some((s) => s.status === "done")) return { tone: "ok", label: "Çalışıyor" };
+  return { tone: "unknown", label: "Durduruldu" };
+}
+
+const KIND_TINT: Record<"app" | "compose" | "db", string> = {
+  app: "bg-[#2563eb]/10 text-[#2563eb]",
+  compose: "bg-[#7c3aed]/10 text-[#7c3aed]",
+  db: "bg-[#047857]/10 text-[#047857]",
+};
+const kindGroup = (k: ServiceInfo["kind"]) => (k === "application" ? "app" : k === "compose" ? "compose" : "db");
+
+/** Proje kutucuğu — ayrıntı alt sayfada. */
+function ProjectTile({ project, sites, href }: { project: ProjectInfo; sites: Record<string, SiteStatus>; href: string }) {
+  const health = projectHealth(project, sites);
+  const host = project.services.flatMap((s) => s.domains)[0]?.host;
+  const groups = { app: 0, compose: 0, db: 0 };
+  for (const s of project.services) groups[kindGroup(s.kind)]++;
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col gap-4 overflow-hidden rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel transition hover:-translate-y-0.5 hover:border-panel-border-strong hover:shadow-panel-md"
+    >
+      <div className="flex items-start gap-3">
+        <Avatar name={project.name} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-base font-semibold text-panel-fg">{project.name}</h3>
+          <p className="truncate text-xs text-panel-fg-secondary">{project.description ?? host ?? "Domain yok"}</p>
         </div>
-        <p className="text-xs text-panel-fg-secondary">
-          Açılış <span className="font-semibold text-panel-fg">{fmtDate(project.createdAt)}</span> · {age(project.createdAt)}
-        </p>
-      </header>
-      <ul className="divide-y divide-panel-border">
+        <ChevronRight className="size-4 shrink-0 text-panel-fg-muted transition group-hover:translate-x-0.5 group-hover:text-panel-fg" aria-hidden />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone={health.tone}>{health.label}</Pill>
+        {(["app", "compose", "db"] as const).map((g) =>
+          groups[g] ? (
+            <span key={g} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold ${KIND_TINT[g]}`}>
+              {g === "app" ? <Package className="size-3.5" aria-hidden /> : g === "compose" ? <Layers className="size-3.5" aria-hidden /> : <Database className="size-3.5" aria-hidden />}
+              {groups[g]} {g === "app" ? "uygulama" : g === "compose" ? "compose" : "veritabanı"}
+            </span>
+          ) : null,
+        )}
+      </div>
+      <div className="mt-auto flex items-center justify-between border-t border-panel-border pt-3 text-xs text-panel-fg-secondary">
+        <span title={fmtDate(project.createdAt)}>{age(project.createdAt)} önce açıldı</span>
+        <span className="font-semibold text-panel-fg">{project.services.length} servis</span>
+      </div>
+    </Link>
+  );
+}
+
+/** Proje alt sayfası. */
+function ProjectDetail({
+  project,
+  sites,
+  serverName,
+  backHref,
+}: {
+  project: ProjectInfo;
+  sites: Record<string, SiteStatus>;
+  serverName: string;
+  backHref: string;
+}) {
+  const health = projectHealth(project, sites);
+  const domainCount = project.services.reduce((n, s) => n + s.domains.length, 0);
+  const lastDeploy = project.services
+    .flatMap((s) => s.deploys)
+    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
+  return (
+    <div className="space-y-5">
+      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm font-semibold text-panel-fg-secondary hover:text-panel-fg">
+        <ArrowLeft className="size-4" aria-hidden />
+        {serverName} · Projeler
+      </Link>
+
+      <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 shadow-panel">
+        <div className="flex flex-wrap items-center gap-4">
+          <Avatar name={project.name} size="lg" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{project.name}</h2>
+              <Pill tone={health.tone}>{health.label}</Pill>
+            </div>
+            {project.description ? <p className="mt-1 text-sm text-panel-fg-secondary">{project.description}</p> : null}
+          </div>
+        </div>
+        <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+          <Fact label="Açılış tarihi" value={fmtDate(project.createdAt)} hint={`${age(project.createdAt)} önce`} />
+          <Fact label="Servis" value={project.services.length} />
+          <Fact label="Domain" value={domainCount} />
+          <Fact label="Son deploy" value={fmtDateTime(lastDeploy?.at ?? null)} hint={lastDeploy?.title} />
+        </dl>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         {project.services.map((s) => {
           const st = STATUS[s.status ?? ""] ?? { tone: "unknown" as Tone, label: s.status ?? "Bilinmiyor" };
-          const last = s.deploys[0];
           return (
-            <li key={`${s.kind}:${s.id}`} className="space-y-2 px-5 py-4">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <KindIcon kind={s.kind} />
-                <span className="font-semibold text-panel-fg">{s.name}</span>
-                <span className="text-xs text-panel-fg-muted">
-                  {KIND_LABEL[s.kind]}
-                  {s.environment ? ` · ${s.environment}` : ""}
+            <section key={`${s.kind}:${s.id}`} className="flex flex-col gap-4 rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel">
+              <div className="flex items-start gap-3">
+                <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${KIND_TINT[kindGroup(s.kind)]}`}>
+                  <KindIcon kind={s.kind} />
                 </span>
-                <Pill tone={st.tone}>{st.label}</Pill>
-                <span className="ml-auto text-xs text-panel-fg-secondary">
-                  {s.partial ? "detay alınamadı" : `Açılış ${fmtDate(s.createdAt)} · ${age(s.createdAt)}`}
-                </span>
-              </div>
-              {last ? (
-                <p className="flex flex-wrap items-center gap-2 text-xs text-panel-fg-secondary">
-                  <span>Son deploy {fmtDateTime(last.at)}</span>
-                  <Pill tone={last.status === "done" ? "ok" : last.status === "error" ? "critical" : "warn"}>
-                    {last.status === "done" ? "Başarılı" : last.status === "error" ? "Başarısız" : "Sürüyor"}
-                  </Pill>
-                  <span className="min-w-0 truncate">{last.status === "error" && last.error ? last.error : last.title}</span>
-                </p>
-              ) : null}
-              {s.domains.map((d) => (
-                <div key={d.host} className="text-sm">
-                  <SiteCell host={d.host} site={sites[d.host]} />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-base font-semibold text-panel-fg">{s.name}</h3>
+                  <p className="text-xs text-panel-fg-secondary">
+                    {KIND_LABEL[s.kind]}
+                    {s.environment ? ` · ${s.environment}` : ""}
+                    {s.partial ? " · detay alınamadı" : ` · açılış ${fmtDate(s.createdAt)} (${age(s.createdAt)})`}
+                  </p>
                 </div>
-              ))}
-            </li>
+                <Pill tone={st.tone}>{st.label}</Pill>
+              </div>
+
+              {s.domains.length ? (
+                <div className="space-y-2 rounded-panel-md bg-panel-surface-muted p-3 text-sm">
+                  {s.domains.map((d) => (
+                    <SiteCell key={d.host} host={d.host} site={sites[d.host]} />
+                  ))}
+                </div>
+              ) : null}
+
+              {s.deploys.length ? (
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-panel-fg-muted">Son deploylar</h4>
+                  <ul className="mt-2 space-y-1.5">
+                    {s.deploys.map((d) => {
+                      const tone: Tone = d.status === "done" ? "ok" : d.status === "error" ? "critical" : "warn";
+                      const Icon = TONE[tone].Icon;
+                      return (
+                        <li key={d.id} className="flex items-center gap-2 text-xs">
+                          <Icon className={`size-3.5 shrink-0 ${TONE[tone].text}`} aria-label={tone === "ok" ? "Başarılı" : tone === "critical" ? "Başarısız" : "Sürüyor"} />
+                          <span className="min-w-0 flex-1 truncate text-panel-fg">{d.status === "error" && d.error ? d.error : d.title}</span>
+                          <span className="shrink-0 tabular-nums text-panel-fg-muted">{fmtDateTime(d.at)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
           );
         })}
-      </ul>
-    </section>
+      </div>
+    </div>
   );
 }
 
@@ -322,11 +458,67 @@ function MetaForm({
   );
 }
 
+const DISK_TYPE_LABEL: Record<string, string> = {
+  Images: "İmajlar",
+  Containers: "Container'lar",
+  "Local Volumes": "Volume'lar",
+  "Build Cache": "Build cache",
+};
+
+function gb(bytes: number): string {
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
+
+/** Docker'ın diskte kapladığı yer — büyükten küçüğe, tek renk çubuk + etiket. */
+function DockerDisk({ items }: { items: NonNullable<NonNullable<ServerPageData["selected"]>["dockerDisk"]> }) {
+  const sorted = [...items].sort((a, b) => b.sizeBytes - a.sizeBytes);
+  const max = sorted[0]?.sizeBytes || 1;
+  const total = sorted.reduce((n, i) => n + i.sizeBytes, 0);
+  return (
+    <div className="border-b border-panel-border px-6 py-5">
+      <h3 className="text-sm font-semibold text-panel-fg">
+        Docker şu an <span className="tabular-nums">{gb(total)}</span> yer kaplıyor
+      </h3>
+      <ul className="mt-3 space-y-2.5">
+        {sorted.map((i) => (
+          <li key={i.type} className="grid grid-cols-[7.5rem_1fr] items-center gap-3 text-sm sm:grid-cols-[9rem_1fr_15rem]">
+            <span className="font-medium text-panel-fg">{DISK_TYPE_LABEL[i.type] ?? i.type}</span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 rounded-r bg-[#c2410c]" style={{ width: `${Math.max(1, (i.sizeBytes / max) * 100)}%` }} />
+              <span className="shrink-0 font-semibold tabular-nums text-panel-fg">{gb(i.sizeBytes)}</span>
+            </span>
+            <span className="col-span-2 text-xs text-panel-fg-secondary sm:col-span-1 sm:text-right">
+              {i.reclaimable ? `geri kazanılabilir ${i.reclaimable}` : ""}
+              {i.active != null && i.total != null ? ` · ${i.active}/${i.total} kullanımda` : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const VIEWS = [
+  { key: "projeler", label: "Projeler", Icon: FolderKanban, color: "#2563eb" },
+  { key: "grafikler", label: "Grafikler", Icon: Activity, color: "#7c3aed" },
+  { key: "temizlik", label: "Docker temizliği", Icon: Trash2, color: "#c2410c" },
+  { key: "olaylar", label: "Olaylar", Icon: Bell, color: "#be185d" },
+] as const;
+type ViewKey = (typeof VIEWS)[number]["key"];
+
 const EVENT_TONE: Record<string, Tone> = { info: "unknown", warn: "warn", critical: "critical" };
 
 /* ───────── ana bileşen ───────── */
 
-export default function ServerDashboard({ data }: { data: ServerPageData }) {
+export default function ServerDashboard({
+  data,
+  view: viewParam,
+  projectId,
+}: {
+  data: ServerPageData;
+  view?: string;
+  projectId?: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
@@ -363,7 +555,18 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
   }
 
   const sel = data.selected;
-  const href = (key: string, range: RangeKey) => `/sunucular?s=${encodeURIComponent(key)}&range=${range}`;
+  const view: ViewKey = VIEWS.some((v) => v.key === viewParam) ? (viewParam as ViewKey) : "projeler";
+  const project = sel?.projects.find((p) => p.id === projectId) ?? null;
+  /** Sayfa içi bağlantı: verilmeyen parametreler mevcut değerini korur. */
+  const link = (key: string, o: { range?: RangeKey; v?: ViewKey; p?: string | null } = {}) => {
+    const q = new URLSearchParams({ s: key });
+    const range = o.range ?? sel?.range ?? "24h";
+    const v = o.v ?? view;
+    if (range !== "24h") q.set("range", range);
+    if (v !== "projeler") q.set("v", v);
+    if (o.p) q.set("p", o.p);
+    return `/sunucular?${q}`;
+  };
 
   async function refreshNow() {
     setBusy("refresh");
@@ -446,7 +649,7 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
           return (
             <Link
               key={t.key}
-              href={href(t.key, sel?.range ?? "24h")}
+              href={link(t.key, { v: "projeler" })}
               aria-current={active ? "page" : undefined}
               className={`flex min-w-52 flex-1 items-center gap-3 rounded-panel-lg border px-4 py-3 transition sm:flex-none ${
                 active
@@ -454,7 +657,7 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
                   : "border-panel-border bg-panel-surface hover:border-panel-border-strong"
               }`}
             >
-              <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl bg-panel-surface-muted ${tone.text}`}>
+              <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${tone.pill}`}>
                 <tone.Icon className="size-4.5" aria-hidden />
               </span>
               <span className="min-w-0">
@@ -483,6 +686,15 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
             </p>
           ) : null}
 
+          {project ? (
+            <ProjectDetail
+              project={project}
+              sites={sel.sites}
+              serverName={sel.server.name}
+              backHref={link(sel.server.key, { p: null })}
+            />
+          ) : (
+            <>
           {/* Özet */}
           <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 shadow-panel">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -550,21 +762,22 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
             <section className="rounded-panel-lg border border-panel-warn-border bg-panel-warn-bg p-5 text-sm text-panel-warn">
               <h3 className="font-semibold">Bu sunucuda kaynak ölçümü kapalı</h3>
               <p className="mt-1">
-                CPU, RAM ve disk için Dokploy&apos;un Monitoring ajanı gerekiyor: Dokploy →{" "}
-                {sel.server.serverId ? "Remote Servers → sunucu → Setup Server → Monitoring" : "Settings → Web Server → Monitoring"}{" "}
-                bölümünden etkinleştir. Projeler, site ve SSL kontrolleri ile Docker temizliği ajan olmadan da çalışır.
+                CPU, RAM ve disk bu sunucudan okunamıyor: Dokploy&apos;un Monitoring ajanı kapalı ve panel bu sunucuda
+                çalışmıyor. Projeler, site ve SSL kontrolleri ile Docker temizliği bundan etkilenmez.
               </p>
             </section>
           ) : (
             <div className="grid gap-4 sm:grid-cols-3">
-              <Meter label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel ?? undefined} />
+              <Meter icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#2563eb1a", color: "#2563eb" }}><Cpu className="size-4" aria-hidden /></span>} label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel ?? undefined} />
               <Meter
+                icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#7c3aed1a", color: "#7c3aed" }}><MemoryStick className="size-4" aria-hidden /></span>} 
                 label="RAM"
                 value={m?.memPct}
                 tone={loadTone(m?.memPct, 85, 95)}
                 sub={m?.memPct != null && m.memTotalGb ? `${((m.memPct / 100) * m.memTotalGb).toFixed(1)} / ${m.memTotalGb.toFixed(1)} GB` : undefined}
               />
               <Meter
+                icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#c2410c1a", color: "#c2410c" }}><HardDrive className="size-4" aria-hidden /></span>} 
                 label="Disk"
                 value={m?.diskPct}
                 tone={loadTone(m?.diskPct, DISK_WARN_PCT, DISK_CRITICAL_PCT)}
@@ -592,13 +805,59 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
             </p>
           ) : null}
 
-          {/* Geçmiş */}
-          <div className="space-y-3">
+          {/* Bölüm sekmeleri */}
+          <nav className="flex flex-wrap gap-2 border-b border-panel-border pb-3" aria-label="Bölümler">
+            {VIEWS.map((v) => {
+              const active = v.key === view;
+              const count =
+                v.key === "projeler" ? sel.projects.length : v.key === "olaylar" ? sel.events.filter((e) => !e.resolvedAt).length : 0;
+              return (
+                <Link
+                  key={v.key}
+                  href={link(sel.server.key, { v: v.key })}
+                  scroll={false}
+                  aria-current={active ? "page" : undefined}
+                  className={`inline-flex min-h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition ${
+                    active ? "bg-[#141111] text-white" : "text-panel-fg-secondary hover:bg-panel-surface-muted hover:text-panel-fg"
+                  }`}
+                >
+                  <v.Icon className="size-4" aria-hidden style={{ color: active ? undefined : v.color }} />
+                  {v.label}
+                  {count ? (
+                    <span
+                      className={`rounded-full px-1.5 text-[11px] tabular-nums ${
+                        active ? "bg-white/20" : v.key === "olaylar" ? "bg-panel-critical-bg text-panel-critical" : "bg-panel-surface-muted"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {view === "projeler" ? (
+            sel.projects.length === 0 ? (
+              <p className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 text-sm text-panel-fg-secondary shadow-panel">
+                Bu sunucuda Dokploy projesi bulunamadı.
+              </p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {sel.projects.map((p) => (
+                  <ProjectTile key={p.id} project={p} sites={sel.sites} href={link(sel.server.key, { p: p.id })} />
+                ))}
+              </div>
+            )
+          ) : null}
+
+          {view === "grafikler" ? (
+                    <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-panel-fg">Geçmiş</h2>
               <div className="flex gap-2" role="group" aria-label="Zaman aralığı">
                 {(Object.keys(RANGES) as RangeKey[]).map((r) => (
-                  <Link key={r} href={href(sel.server.key, r)} scroll={false} className={chipClass(r === sel.range)}>
+                  <Link key={r} href={link(sel.server.key, { range: r })} scroll={false} className={chipClass(r === sel.range)}>
                     {RANGES[r].label}
                   </Link>
                 ))}
@@ -607,8 +866,11 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
             <ServerCharts data={sel.series} range={sel.range} diskWarnPct={DISK_WARN_PCT} />
           </div>
 
-          {/* Docker temizliği */}
-          <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
+          
+          ) : null}
+
+          {view === "temizlik" ? (
+                    <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
             <header className="flex flex-wrap items-start justify-between gap-3 border-b border-panel-border px-6 py-5">
               <div className="max-w-2xl">
                 <h2 className="text-base font-semibold text-panel-fg">Docker temizliği</h2>
@@ -629,6 +891,7 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
                 </label>
               ) : null}
             </header>
+            {sel.dockerDisk ? <DockerDisk items={sel.dockerDisk} /> : null}
             <ul className="grid gap-px bg-panel-border sm:grid-cols-2 lg:grid-cols-3">
               {(Object.keys(CLEANUP_ACTIONS) as CleanupAction[]).map((a) => {
                 const spec = CLEANUP_ACTIONS[a];
@@ -656,22 +919,11 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
             </ul>
           </section>
 
-          {/* Projeler */}
-          <div className="space-y-3">
-            <h2 className="text-base font-semibold text-panel-fg">
-              Projeler <span className="font-normal text-panel-fg-secondary">· {sel.projects.length}</span>
-            </h2>
-            {sel.projects.length === 0 ? (
-              <p className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 text-sm text-panel-fg-secondary shadow-panel">
-                Bu sunucuda Dokploy projesi bulunamadı.
-              </p>
-            ) : (
-              sel.projects.map((p) => <ProjectCard key={p.id} project={p} sites={sel.sites} />)
-            )}
-          </div>
+          
+          ) : null}
 
-          {/* Olaylar */}
-          <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
+          {view === "olaylar" ? (
+                    <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
             <header className="border-b border-panel-border px-6 py-5">
               <h2 className="text-base font-semibold text-panel-fg">Olaylar</h2>
               <p className="mt-1 text-sm text-panel-fg-secondary">
@@ -701,6 +953,9 @@ export default function ServerDashboard({ data }: { data: ServerPageData }) {
               </ul>
             )}
           </section>
+          ) : null}
+            </>
+          )}
         </>
       ) : (
         <p className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 text-sm text-panel-fg-secondary shadow-panel">

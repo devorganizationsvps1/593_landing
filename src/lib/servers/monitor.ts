@@ -19,8 +19,8 @@ import { CLEANUP_ACTIONS, type CleanupAction, type MetricSnapshot, type ServerIn
 
 export type LiveSample = {
   at: string;
-  /** agent = Dokploy metrik ajanı, local = panelin kendi makinesi, null = kaynak yok */
-  source: "agent" | "local" | null;
+  /** agent = Dokploy metrik ajanı, dokploy = Dokploy'un yerleşik izlemesi, local = panelin kendi makinesi, null = kaynak yok */
+  source: "agent" | "dokploy" | "local" | null;
   up: boolean;
   metric: MetricSnapshot | null;
   error: string | null;
@@ -38,18 +38,18 @@ export function lastLiveSample(key: string): LiveSample | null {
 
 export async function sampleServer(server: ServerInfo): Promise<LiveSample> {
   const at = new Date().toISOString();
-  const isLocal = localServerKey(await loadInventory()) === server.key;
+  const isLocal = (await localServerKey(await loadInventory())) === server.key;
   let result: LiveSample;
   try {
-    const metric = server.metrics ? await fetchServerMetrics(server) : null;
-    if (metric) result = { at, source: "agent", up: true, metric, error: null };
+    const metric = await fetchServerMetrics(server);
+    if (metric) result = { at, source: server.metrics ? "agent" : "dokploy", up: true, metric, error: null };
     else if (isLocal) result = { at, source: "local", up: true, metric: await localMetrics(), error: null };
     else result = { at, source: null, up: true, metric: null, error: null };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     result = isLocal
       ? { at, source: "local", up: true, metric: await localMetrics(), error: null }
-      : { at, source: "agent", up: false, metric: null, error };
+      : { at, source: server.metrics ? "agent" : "dokploy", up: false, metric: null, error };
   }
   live.set(server.key, result);
   return result;

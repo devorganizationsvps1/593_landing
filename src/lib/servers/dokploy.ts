@@ -5,6 +5,7 @@
  * Yanıt şekilleri Dokploy sürümüne göre değişir (ör. eski sürümlerde servisler
  * doğrudan projede, yenilerde `environments[]` altında) — okuma toleranslıdır.
  */
+import WebSocket from "ws";
 import { rootDomain } from "@/lib/panel/host";
 import { dokployInstances, dokployMock, localServerOverride, serverKey, type DokployInstance } from "./config";
 import { mockCall } from "./mock";
@@ -280,17 +281,56 @@ export async function loadInventory(force = false): Promise<Inventory> {
 }
 
 /**
- * Panelin üzerinde çalıştığı sunucu: env ile verilmediyse, panelin kendi
- * domainini (kök ya da admin.*) taşıyan Dokploy servisinin sunucusu.
+ * Panelin üzerinde çalıştığı sunucu. Sırayla: env ile verilen; panelin kendi
+ * domainini (kök / www / admin) taşıyan Dokploy servisinin sunucusu; panelin
+ * dışa çıkış IP'siyle aynı IP'ye sahip sunucu. Sonuç envanterle birlikte
+ * önbelleğe alınır.
  */
-export function localServerKey(inv: Inventory): string | null {
+export async function localServerKey(inv: Inventory): Promise<string | null> {
   const override = localServerOverride();
   if (override) return override === "none" ? null : override;
+  // Geliştirme makinesi hiçbir zaman sunuculardan biri değildir.
+  if (process.env.NODE_ENV !== "production") return null;
+  if (gl.__593LocalKey?.for === inv.fetchedAt) return gl.__593LocalKey.key;
+
   const root = rootDomain();
-  const own = new Set([root, `www.${root}`, `admin.${root}`]);
+  const own = [root, `admin.${root}`, `www.${root}`];
+  let key: string | null = null;
   for (const p of inv.projects) {
     for (const s of p.services) {
-      if (!s.partial && s.domains.some((d) => own.has(d.host))) return s.serverKey;
+      if (!s.partial && s.domains.some((d) => own.includes(d.host))) key ??= s.serverKey;
+    }
+  }
+  if (!key) {
+    const ip = await ownPublicIp();
+    key = (ip && inv.servers.find((s) => s.ip === ip)?.key) || null;
+  }
+  gl.__593LocalKey = { for: inv.fetchedAt, key };
+  return key;
+}
+const gl = globalThis as typeof globalThis & {
+  __593LocalKey?: { for: string; key: string | null };
+  __593PublicIp?: string;
+};
+
+/**
+ * Panelin dışarıya çıktığı IP. Domain Cloudflare arkasında olduğundan DNS
+ * kaydı sunucu IP'sini vermez; bu yüzden dış bir "IP'm ne" ucuna sorulur
+ * (istekte hiçbir veri gönderilmez). Süreç boyunca bir kez.
+ */
+async function ownPublicIp(): Promise<string | null> {
+  if (gl.__593PublicIp) return gl.__593PublicIp;
+  const sources: Array<[string, (t: string) => string | undefined]> = [
+    ["https://1.1.1.1/cdn-cgi/trace", (t) => /^ip=(.+)$/m.exec(t)?.[1]],
+    ["https://api.ipify.org", (t) => t],
+  ];
+  for (const [url, pick] of sources) {
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      const ip = pick(await res.text())?.trim();
+      if (res.ok && ip && /^[0-9a-f.:]+$/i.test(ip)) return (gl.__593PublicIp = ip);
+    } catch {
+      /* sıradaki */
     }
   }
   return null;
@@ -325,14 +365,132 @@ function lastRow(v: unknown): Json | null {
   return rows.length ? rows[rows.length - 1] : null;
 }
 
+/** "3.40GiB" → GiB. */
+function toGib(v: unknown): number | null {
+  const m = /^([\d.]+)\s*([KMGT])i?B$/i.exec(String(v ?? "").trim());
+  if (!m) return null;
+  const exp = { K: -2, M: -1, G: 0, T: 1 }[m[2].toUpperCase() as "K" | "M" | "G" | "T"];
+  return Number.parseFloat(m[1]) * 1024 ** exp;
+}
+
+/** Dokploy'un yerleşik (ajansız) izleme kaydı: { cpu, memory, disk, network } son girdileri. */
+function parseFreeStats(data: Json, maxAgeMs: number): MetricSnapshot | null {
+  const entry = (k: string) => {
+    const e = obj(data[k]);
+    const t = iso(e.time);
+    return t && Date.now() - new Date(t).getTime() <= maxAgeMs ? e.value : undefined;
+  };
+  const cpu = entry("cpu");
+  const mem = obj(entry("memory"));
+  const disk = obj(entry("disk"));
+  const net = obj(entry("network"));
+  const used = toGib(mem.used);
+  const total = toGib(mem.total);
+  const snap: MetricSnapshot = {
+    cpuPct: num(cpu),
+    memPct: used != null && total ? (used / total) * 100 : null,
+    memTotalGb: total,
+    diskPct: num(disk.diskUsedPercentage),
+    diskTotalGb: num(disk.diskTotal),
+    netInMb: num(net.inputMb),
+    netOutMb: num(net.outputMb),
+    uptimeSec: null,
+    os: null,
+    kernel: null,
+    arch: null,
+    cpuModel: null,
+    cpuCores: null,
+  };
+  return snap.cpuPct == null && snap.memPct == null && snap.diskPct == null ? null : snap;
+}
+
+/**
+ * Dokploy'un kendi makinesinin anlık ölçümü — Monitoring sayfasını besleyen
+ * WebSocket akışından tek mesaj (ajan gerekmez, API anahtarıyla). Akış
+ * açılamazsa son 10 dakikada kaydedilmiş değer; o da yoksa null.
+ * Dokploy'a hiç ulaşılamıyorsa fırlatır.
+ */
+async function fetchFreeMetrics(inst: DokployInstance): Promise<MetricSnapshot | null> {
+  if (dokployMock()) return null;
+  const viaWs = await new Promise<MetricSnapshot | null>((resolve) => {
+    const ws = new WebSocket(
+      `${inst.url.replace(/^http/, "ws")}/listen-docker-stats-monitoring?appName=dokploy&appType=application`,
+      { headers: { "x-api-key": inst.apiKey }, handshakeTimeout: 8_000 },
+    );
+    const done = (v: MetricSnapshot | null) => {
+      clearTimeout(timer);
+      ws.removeAllListeners();
+      ws.on("error", () => undefined);
+      ws.terminate();
+      resolve(v);
+    };
+    const timer = setTimeout(() => done(null), 10_000);
+    ws.on("message", (raw) => {
+      try {
+        const snap = parseFreeStats(obj(obj(JSON.parse(String(raw))).data), 60_000);
+        if (snap) done(snap);
+      } catch {
+        /* sonraki mesajı bekle */
+      }
+    });
+    ws.on("error", () => done(null));
+    ws.on("close", () => done(null));
+  });
+  if (viaWs) return viaWs;
+  // Akış yoksa: API ayakta mı? (değilse sunucu "erişilemez" sayılır)
+  const stored = await dokployCall<unknown>(inst, "application.readAppMonitoring", {
+    query: { appName: "dokploy" },
+    timeoutMs: 10_000,
+  }).catch((err) => {
+    if (err instanceof DokployError && err.status === null) throw err;
+    return null;
+  });
+  const last = (k: string) => arr(obj(stored)[k]).at(-1) ?? {};
+  return parseFreeStats(
+    { cpu: last("cpu"), memory: last("memory"), disk: last("disk"), network: last("network") },
+    10 * 60_000,
+  );
+}
+
+export type DockerDiskItem = {
+  type: string;
+  sizeBytes: number;
+  reclaimable: string | null;
+  active: number | null;
+  total: number | null;
+};
+
+/** `docker system df` dökümü — yalnızca Dokploy'un kendi makinesi için var. */
+export async function fetchDockerDiskUsage(server: ServerInfo): Promise<DockerDiskItem[] | null> {
+  const inst = instanceOf(server);
+  if (!inst || server.serverId || dokployMock()) return null;
+  try {
+    const rows = arr(await dokployCall<unknown>(inst, "settings.getDockerDiskUsage", { timeoutMs: 20_000 }));
+    const items = rows
+      .map((r) => ({
+        type: str(r.type) ?? "?",
+        sizeBytes: num(r.sizeBytes) ?? 0,
+        reclaimable: str(r.reclaimable),
+        active: num(r.active),
+        total: num(r.totalCount),
+      }))
+      .filter((r) => r.sizeBytes > 0);
+    return items.length ? items : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Dokploy metrik ajanından (Monitoring, varsayılan port 4500) son ölçüm.
+ * Ajan kurulu değilse ve sunucu Dokploy'un kendi makinesiyse yerleşik izleme.
  * Önce Dokploy API'si üzerinden (güvenlik duvarı ardındaki ajan için),
  * olmazsa ajana doğrudan. Ajan kapalıysa null; ulaşılamazsa fırlatır.
  */
 export async function fetchServerMetrics(server: ServerInfo): Promise<MetricSnapshot | null> {
   const inst = instanceOf(server);
-  if (!inst || !server.metrics) return null;
+  if (!inst) return null;
+  if (!server.metrics) return server.serverId ? null : fetchFreeMetrics(inst);
   const host = server.ip ?? new URL(inst.url).hostname;
   const base = `http://${host}:${server.metrics.port}`;
   try {

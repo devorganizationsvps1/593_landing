@@ -1,7 +1,7 @@
 /** /sunucular sayfasının verisi — envanter + DB geçmişi + canlı ölçüm. */
 import { prisma } from "@/lib/db";
 import { dokployInstances, dokployMock } from "./config";
-import { loadInventory, localServerKey } from "./dokploy";
+import { fetchDockerDiskUsage, loadInventory, localServerKey, type DockerDiskItem } from "./dokploy";
 import { lastLiveSample, nextRenewal, sampleServer, type LiveSample } from "./monitor";
 import { RANGES, type ProjectInfo, type RangeKey, type ServerInfo } from "./types";
 
@@ -74,6 +74,8 @@ export type ServerPageData = {
     sampleCount: number;
     /** Mevcut eğilimle diskin dolmasına kalan gün; eğilim yoksa null. */
     diskFullInDays: number | null;
+    /** Docker disk dökümü — yalnızca istendiğinde (temizlik sekmesi) ve destekleniyorsa. */
+    dockerDisk: DockerDiskItem[] | null;
     projects: ProjectInfo[];
     sites: Record<string, SiteStatus>;
     events: ServerEventRow[];
@@ -105,7 +107,11 @@ function diskForecast(points: Array<{ at: Date; diskPct: number | null }>): numb
   return days > 365 ? null : Math.max(0, Math.round(days));
 }
 
-export async function loadServerPage(opts: { key?: string; range?: string }): Promise<ServerPageData> {
+export async function loadServerPage(opts: {
+  key?: string;
+  range?: string;
+  withDockerDisk?: boolean;
+}): Promise<ServerPageData> {
   const configured = dokployInstances().length > 0;
   if (!configured) return { configured, mock: false, tabs: [], selected: null };
 
@@ -146,7 +152,7 @@ export async function loadServerPage(opts: { key?: string; range?: string }): Pr
 
   const cached = lastLiveSample(server.key);
   const fresh = cached && Date.now() - new Date(cached.at).getTime() < 60_000;
-  const [liveSample, rows, weekRows, metaRow, events, checks] = await Promise.all([
+  const [liveSample, rows, weekRows, metaRow, events, checks, dockerDisk] = await Promise.all([
     instanceError ? Promise.resolve(null) : fresh ? Promise.resolve(cached) : sampleServer(server),
     prisma.serverSample.findMany({ where: { serverKey: server.key, at: { gte: since } }, orderBy: { at: "asc" } }),
     prisma.serverSample.findMany({
@@ -160,6 +166,7 @@ export async function loadServerPage(opts: { key?: string; range?: string }): Pr
       where: { serverKey: server.key, at: { gte: new Date(Date.now() - 86_400_000) } },
       orderBy: { at: "desc" },
     }),
+    opts.withDockerDisk && !instanceError ? fetchDockerDiskUsage(server) : Promise.resolve(null),
   ]);
 
   // Ağ: sayaç farkı → MB/sn (sayaç sıfırlandıysa atlanır).
@@ -221,7 +228,7 @@ export async function loadServerPage(opts: { key?: string; range?: string }): Pr
     mock: dokployMock(),
     tabs,
     selected: {
-      server: { ...pub, monitoring: Boolean(metrics), isLocal: localServerKey(inv) === server.key },
+      server: { ...pub, monitoring: Boolean(metrics), isLocal: (await localServerKey(inv)) === server.key },
       instanceError,
       live: liveSample,
       meta: {
@@ -238,6 +245,7 @@ export async function loadServerPage(opts: { key?: string; range?: string }): Pr
       uptimePct: rows.length ? (rows.filter((r) => r.up).length / rows.length) * 100 : null,
       sampleCount: rows.length,
       diskFullInDays: diskForecast(weekRows),
+      dockerDisk,
       projects,
       sites,
       events: events.map((e) => ({

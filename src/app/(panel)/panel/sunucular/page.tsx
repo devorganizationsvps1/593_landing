@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ServersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ s?: string; range?: string }>;
+  searchParams: Promise<{ s?: string; range?: string; v?: string; p?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -25,6 +25,10 @@ export default async function ServersPage({
   if (!can(session.user.role, "servers.manage")) redirect("/brands");
 
   const sp = await searchParams;
-  const data = await loadServerPage({ key: sp.s, range: sp.range });
-  return <ServerDashboard data={data} />;
+  const data = await loadServerPage({
+    key: sp.s,
+    range: sp.range,
+    withDockerDisk: sp.v === "temizlik" && !sp.p,
+  });
+  return <ServerDashboard data={data} view={sp.v} projectId={sp.p} />;
 }
