@@ -195,10 +195,6 @@ export const METRIC_DESCRIPTIONS = {
     description: "Dönem bütçesinin ne kadarının harcandığı.",
     formula: "(Harcama ÷ bütçe) × 100",
   },
-  invoiceTotal: {
-    title: "Fatura tutarı",
-    description: "Döneme ait faturalandırılan reklam harcaması.",
-  },
   campaign: {
     title: "Kampanya",
     description: "Reklam platformundaki kampanya adı veya kimliği.",

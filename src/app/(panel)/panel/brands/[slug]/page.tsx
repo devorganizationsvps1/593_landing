@@ -6,7 +6,6 @@ import AlertActions from "@/components/panel/AlertActions";
 import AuditLogTable from "@/components/panel/AuditLogTable";
 import BrandIntegrationToggles from "@/components/panel/BrandIntegrationToggles";
 import BrandOwnerSelect from "@/components/panel/BrandOwnerSelect";
-import BrandBudgetPlanner from "@/components/panel/BrandBudgetPlanner";
 import BrandMeetingsList from "@/components/panel/BrandMeetingsList";
 import BrandNotes from "@/components/panel/BrandNotes";
 import BrandReportPanel from "@/components/panel/BrandReportPanel";
@@ -532,8 +531,6 @@ export default async function BrandDetailPage({ params, searchParams }: Props) {
           }}
         />
       ) : null}
-
-      <BrandBudgetPlanner plan={budgetPlan} existsInDb={existsInDb} />
 
       <section
         id="uyarilar"

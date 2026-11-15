@@ -17,7 +17,6 @@ export const TENANT_NAV_LINKS: PanelNavLink[] = [
   { href: "/ga4", label: "GA4", integration: "ga4" },
   { href: "/gtm", label: "GTM", integration: "gtm" },
   { href: "/budget", label: "Bütçe" },
-  { href: "/faturalar", label: "Faturalar" },
   { href: "/search-console", label: "GSC", integration: "gsc" },
 ];
 
@@ -86,7 +85,6 @@ const TENANT_PAGE_TITLES: Record<string, string> = {
   "/ga4": "GA4",
   "/gtm": "GTM",
   "/budget": "Bütçe",
-  "/faturalar": "Faturalar",
   "/search-console": "Search Console",
 };
 

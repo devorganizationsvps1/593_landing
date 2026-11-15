@@ -17,7 +17,7 @@ const OUT = "/private/tmp/claude-501/-Users-yusuf-Desktop-593/e8870013-f990-4fa0
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 30000 }).catch(() => {});
   await page.waitForLoadState("networkidle");
   console.log("after login", page.url());
-  for (const path of ["/", "/meta", "/google", "/ga4", "/budget", "/faturalar"]) {
+  for (const path of ["/", "/meta", "/google", "/ga4", "/budget"]) {
     const t0 = Date.now();
     const res = await page.goto(`http://bahex.localhost:3006${path}?period=1`, { waitUntil: "networkidle", timeout: 120000 });
     await page.waitForTimeout(800);

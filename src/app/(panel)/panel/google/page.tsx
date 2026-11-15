@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
-import BudgetPlanVsActual from "@/components/panel/BudgetPlanVsActual";
 import PeriodFilterBar from "@/components/panel/PeriodFilterBar";
 import { TimezoneNotice } from "@/components/panel/TimezoneNotice";
 import { StatusBadge } from "@/components/panel/StatusBadge";
@@ -212,15 +211,6 @@ export default async function GooglePage({
             <li key={r}>• {r}</li>
           ))}
         </ul>
-      ) : null}
-
-      {budgetPlan ? (
-        <BudgetPlanVsActual
-          plan={budgetPlan}
-          provider="google"
-          variant="compact"
-          statusReasons={status.google.reasons.map((r) => r.text)}
-        />
       ) : null}
 
       {unknown ? (

@@ -10,7 +10,6 @@ import {
   ymdInTimeZone,
   ymdToUtcDate,
 } from "@/lib/date/tr";
-import { fetchGoogleSuccessfulInvoices } from "@/lib/integrations/google/billing";
 import { fetchGa4Daily } from "@/lib/integrations/google/ga4";
 import { fetchGtmSnapshotResolved } from "@/lib/integrations/google/gtm";
 import { fetchSearchConsoleQuery } from "@/lib/integrations/google/gsc";
@@ -21,7 +20,6 @@ import {
   fetchMetaAdsetInsights,
   fetchMetaBreakdownInsights,
 } from "@/lib/integrations/meta/ads";
-import { fetchMetaSuccessfulCharges } from "@/lib/integrations/meta/billing";
 import { fetchMetaCampaignInsights } from "@/lib/integrations/meta/insights";
 import { provisionTenantsFromMeta } from "@/lib/integrations/meta/provision";
 import type { ProvisionResult } from "@/lib/integrations/meta/provision";
@@ -158,9 +156,9 @@ export type SyncProvider = "meta" | "google";
 
 /**
  * full: her şey (720g). daily: son günler — kampanya + reklam düzeyi, kreatif,
- * fatura, GA4, GTM, GSC (provision / site testi yok).
+ * GA4, GTM, GSC (provision / site testi yok).
  * backfill: 720g kampanya metrikleri + dönüşümler + GA4 — kreatif / reklam düzeyi /
- * fatura / GTM / GSC / provision atlanır (geriye dönük doldurma).
+ * GTM / GSC / provision atlanır (geriye dönük doldurma).
  */
 export type SyncMode = "full" | "daily" | "backfill";
 
@@ -192,9 +190,9 @@ export async function runAgencySync(opts?: {
   const isDaily = opts?.mode === "daily";
   // BM provision + site testi yalnızca tam sync'te (günlük + backfill atlar).
   const lean = isDaily || opts?.mode === "backfill";
-  // Kreatif, reklam düzeyi, fatura, GTM, GSC: günlük otomatik çekimde de
+  // Kreatif, reklam düzeyi, GTM, GSC: günlük otomatik çekimde de
   // (kısa pencereyle) çalışır — yalnızca backfill atlar. Aksi halde kreatif
-  // görsel linkleri (fbcdn imzası ~4 gün) ve faturalar bayatlıyordu.
+  // görsel linkleri (fbcdn imzası ~4 gün) bayatlıyordu.
   const extras = opts?.mode !== "backfill";
 
   if (doGoogle) await ensureGoogleConnection();
@@ -250,10 +248,6 @@ export async function runAgencySync(opts?: {
   const metaRange = dailyRanges?.meta ?? fullRange!;
   const googleRange = dailyRanges?.google ?? fullRange!;
   const { from, to } = googleRange;
-  // Fatura penceresi: günlükte son 45 gün (Google aylık faturası ay başında düşer).
-  const billingRange = isDaily
-    ? { from: addDaysYmd(googleRange.to, -45), to: googleRange.to }
-    : googleRange;
   const adLevel = isDaily
     ? metaRange
     : await syncAdLevelLookbackRange();
@@ -642,58 +636,6 @@ export async function runAgencySync(opts?: {
         ? { ok: true }
         : { ok: false, error: metaAdPerf.error };
 
-      const metaBilling = await runSynced(
-        {
-          tenantId: tenant.id,
-          provider: "meta",
-          service: "billing",
-          objective: "charges",
-        },
-        async () => {
-          if (!metaAccountId) {
-            throw new Error(
-              "metaAccountId yok — başarılı Meta çekimleri alınamadı.",
-            );
-          }
-          const rows = await fetchMetaSuccessfulCharges({
-            metaAccountId,
-            from: billingRange.from,
-            to: billingRange.to,
-          });
-          for (const row of rows) {
-            await prisma.billingCharge.upsert({
-              where: {
-                tenantId_provider_externalId: {
-                  tenantId: tenant.id,
-                  provider: "meta",
-                  externalId: row.externalId,
-                },
-              },
-              update: {
-                amount: row.amount,
-                currency: row.currency,
-                chargedAt: row.chargedAt,
-                status: row.status,
-                viewUrl: row.viewUrl,
-              },
-              create: {
-                tenantId: tenant.id,
-                provider: "meta",
-                externalId: row.externalId,
-                amount: row.amount,
-                currency: row.currency,
-                chargedAt: row.chargedAt,
-                status: row.status,
-                viewUrl: row.viewUrl,
-              },
-            });
-          }
-          return rows.length;
-        },
-      );
-      services.metaBilling = metaBilling.ok
-        ? { ok: true }
-        : { ok: false, error: metaBilling.error };
       }
     }
 
@@ -868,74 +810,6 @@ export async function runAgencySync(opts?: {
         );
         services.ads = ads.ok ? { ok: true } : { ok: false, error: ads.error };
 
-        if (extras) {
-        const googleBilling = await runSynced(
-          {
-            tenantId: tenant.id,
-            provider: "google",
-            service: "billing",
-            objective: "charges",
-          },
-          async () => {
-            const resolvedId =
-              (
-                await prisma.tenantMapping.findUnique({
-                  where: { tenantId: tenant.id },
-                  select: { adsCustomerId: true },
-                })
-              )?.adsCustomerId || adsCustomerId;
-            if (!resolvedId) {
-              throw new Error(
-                "adsCustomerId yok — Google faturaları alınamadı.",
-              );
-            }
-            const result = await fetchGoogleSuccessfulInvoices({
-              customerId: resolvedId,
-              from: billingRange.from,
-              to: billingRange.to,
-            });
-            for (const row of result.charges) {
-              await prisma.billingCharge.upsert({
-                where: {
-                  tenantId_provider_externalId: {
-                    tenantId: tenant.id,
-                    provider: "google",
-                    externalId: row.externalId,
-                  },
-                },
-                update: {
-                  amount: row.amount,
-                  currency: row.currency,
-                  chargedAt: row.chargedAt,
-                  status: row.status,
-                  invoiceNumber: row.invoiceNumber,
-                  billingSetupId: row.billingSetupId,
-                  issueYear: row.issueYear,
-                  issueMonth: row.issueMonth,
-                },
-                create: {
-                  tenantId: tenant.id,
-                  provider: "google",
-                  externalId: row.externalId,
-                  amount: row.amount,
-                  currency: row.currency,
-                  chargedAt: row.chargedAt,
-                  status: row.status,
-                  invoiceNumber: row.invoiceNumber,
-                  billingSetupId: row.billingSetupId,
-                  issueYear: row.issueYear,
-                  issueMonth: row.issueMonth,
-                },
-              });
-            }
-            // unsupported / no setup → 0 rows, sync success (not a hard failure)
-            return result.charges.length;
-          },
-        );
-        services.googleBilling = googleBilling.ok
-          ? { ok: true }
-          : { ok: false, error: googleBilling.error };
-        }
       }
 
       // --- GA4 (persist, günlük satırlar) ---

@@ -31,7 +31,7 @@ export type DailySyncResult = {
 
 /**
  * Logolu görünür markalar — kısa pencereyle Meta + Google kampanya ve reklam
- * metrikleri, kreatifler, faturalar, GA4, GTM, GSC. Tam 720g / BM provision
+ * metrikleri, kreatifler, GA4, GTM, GSC. Tam 720g / BM provision
  * çekilmez.
  */
 export async function runScheduledDailySync(): Promise<DailySyncResult> {

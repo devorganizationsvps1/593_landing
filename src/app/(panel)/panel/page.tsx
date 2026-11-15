@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { auth } from "@/auth";
-import BudgetPlanVsActual from "@/components/panel/BudgetPlanVsActual";
 import PresentationDashboard from "@/components/panel/PresentationDashboard";
 import { DateRangePicker } from "@/components/panel/ds";
 import { loadBrandBudgetPlan } from "@/lib/panel/brand-budget";
@@ -52,18 +51,7 @@ export default async function PanelHomePage({
         <DateRangePicker label={range.label} showCompare={false} />
       </Suspense>
 
-      <PresentationDashboard
-        model={model}
-        budget={
-          budgetPlan ? (
-            <BudgetPlanVsActual
-              plan={budgetPlan}
-              variant="compact"
-              statusReasons={status.budget.reasons.map((r) => r.text)}
-            />
-          ) : undefined
-        }
-      />
+      <PresentationDashboard model={model} />
     </div>
   );
 }

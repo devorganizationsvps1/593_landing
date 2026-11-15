@@ -131,12 +131,6 @@ export function describeCall(
         call: "GET /{act_id}/ads · kreatif",
       };
     }
-    if (service === "billing") {
-      return {
-        api: "Meta Graph",
-        call: "GET /{act_id}/activities · fatura",
-      };
-    }
     return { api: "Meta Graph", call: `${service}/${objective}` };
   }
   if (service === "ads") {
@@ -144,9 +138,6 @@ export function describeCall(
       api: "Google Ads",
       call: "GAQL · campaign metrics · daily",
     };
-  }
-  if (service === "billing") {
-    return { api: "Google Ads", call: "GAQL · invoices" };
   }
   if (service === "ga4") {
     return { api: "GA4 Data API", call: "runReport · overview / channel" };

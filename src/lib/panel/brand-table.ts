@@ -39,8 +39,6 @@ function dmy(ymd: string): string {
 /** Senkron bu kadar saatten eskiyse "gecikmiş" sayılır. */
 export const SYNC_STALE_HOURS = 24;
 
-/** Fatura çekimi günlük; bu kadar gün başarısızsa ajans uyarılır (müşteri "güncelleniyor" görür). */
-export const BILLING_STALE_DAYS = 3;
 
 export type TokenState = "ok" | "token" | "permission" | "none";
 
@@ -133,7 +131,6 @@ const SERVICE_LABEL: Record<string, string> = {
   insights: "Meta kampanya",
   ad_insights: "Meta reklam",
   ads: "Reklam",
-  billing: "Fatura",
   ga4: "GA4",
   gtm: "GTM",
   gsc: "Search Console",
@@ -530,16 +527,6 @@ export async function loadBrandTable(opts: {
       }
       const setupText = setupMissingText(setupBy.get(t.id));
       if (setupText) reasons.push({ tone: "warn", text: setupText });
-      for (const j of jobs) {
-        if (j.service !== "billing" || !j.lastSuccessAt) continue;
-        const ageDays = Math.floor((Date.now() - j.lastSuccessAt.getTime()) / 86_400_000);
-        if (ageDays >= BILLING_STALE_DAYS) {
-          reasons.push({
-            tone: "warn",
-            text: `${j.provider === "meta" ? "Meta" : "Google"} fatura verisi ${ageDays} gündür güncellenmedi`,
-          });
-        }
-      }
       if (!lastSync) {
         reasons.push({ tone: "warn", text: "Hiç senkron olmadı" });
       } else if (lastSync.getTime() < staleBefore) {

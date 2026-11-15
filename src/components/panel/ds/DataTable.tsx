@@ -42,7 +42,6 @@ const HEADER_METRIC_MAP: Record<string, string> = {
   "Ort. konum": "gscPosition",
   Kampanya: "campaign",
   "Reklam grubu": "adset",
-  Tutar: "invoiceTotal",
 };
 
 function headerLabel(h: DataTableHeader): string {

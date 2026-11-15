@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
-import BudgetPlanVsActual from "@/components/panel/BudgetPlanVsActual";
 import PeriodFilterBar from "@/components/panel/PeriodFilterBar";
 import { StatusBadge } from "@/components/panel/StatusBadge";
 import { ChartCard } from "@/components/panel/ds";
@@ -51,7 +50,7 @@ export default async function BudgetPage({
         <div>
           <h2 className="text-lg font-semibold tracking-tight">Bütçe</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Planlanan bütçe ajans tarafından belirlenir · burada yalnızca izlenir
+            Meta ve Google harcaması
           </p>
         </div>
         <StatusBadge
@@ -71,33 +70,26 @@ export default async function BudgetPage({
         </div>
       ) : null}
 
-      {budgetPlan ? (
-        <BudgetPlanVsActual
-          plan={budgetPlan}
-          statusReasons={status.budget.reasons.map((r) => r.text)}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatTile
+          label="Harcanan"
+          value={spent === null ? null : formatTry(spent, tenant.currency)}
+          hint={range.label}
+          variant="navy"
         />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatTile
-            label="Harcanan"
-            value={spent === null ? null : formatTry(spent, tenant.currency)}
-            hint={range.label}
-            variant="navy"
-          />
-          <StatTile
-            label="Google Ads"
-            value={spent === null ? null : formatTry(googleSpend, tenant.currency)}
-            color="#E37400"
-            values={gSeries.map((p) => p.spend)}
-          />
-          <StatTile
-            label="Meta Ads"
-            value={spent === null ? null : formatTry(metaSpend, tenant.currency)}
-            color="#0866FF"
-            values={mSeries.map((p) => p.spend)}
-          />
-        </div>
-      )}
+        <StatTile
+          label="Google Ads"
+          value={spent === null ? null : formatTry(googleSpend, tenant.currency)}
+          color="#E37400"
+          values={gSeries.map((p) => p.spend)}
+        />
+        <StatTile
+          label="Meta Ads"
+          value={spent === null ? null : formatTry(metaSpend, tenant.currency)}
+          color="#0866FF"
+          values={mSeries.map((p) => p.spend)}
+        />
+      </div>
 
       {spent !== null ? (
         <ChartCard

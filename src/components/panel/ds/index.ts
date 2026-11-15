@@ -19,7 +19,6 @@ export { StatusBadge } from "./StatusBadge";
 export { SectionCard, ProviderBadge, type ProviderKind } from "./SectionCard";
 export { ChannelCard } from "./ChannelCard";
 export { FunnelCard, type FunnelStep } from "./FunnelCard";
-export { BudgetBar } from "./BudgetBar";
 export {
   DataTable,
   type DataTableHeader,

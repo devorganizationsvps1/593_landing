@@ -53,7 +53,6 @@ const PERIOD_KEYS = ["period", "start", "end", "compare"] as const;
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/": LayoutDashboard,
   "/budget": Receipt,
-  "/faturalar": Receipt,
   "/brands": Building2,
   "/board": ClipboardList,
   "/kampanyalar": Megaphone,
@@ -316,8 +315,7 @@ function SidebarNav({ items }: { items: PanelNavLink[] }) {
           item.href === "/meta" ||
           item.href === "/google" ||
           item.href === "/ga4" ||
-          item.href === "/budget" ||
-          item.href === "/faturalar";
+          item.href === "/budget";
 
         const href = keepPeriod ? `${item.href}${periodQs}` : item.href;
         const brand = isBrandNavHref(item.href);

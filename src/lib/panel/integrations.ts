@@ -10,8 +10,8 @@ export const INTEGRATIONS: ReadonlyArray<{
   label: string;
   description: string;
 }> = [
-  { key: "meta", label: "Meta Ads", description: "Kampanya, reklam, fatura, saatlik harcama ve ödeme durumu" },
-  { key: "google_ads", label: "Google Ads", description: "Kampanya, fatura, saatlik harcama ve ödeme durumu" },
+  { key: "meta", label: "Meta Ads", description: "Kampanya, reklam, saatlik harcama ve ödeme durumu" },
+  { key: "google_ads", label: "Google Ads", description: "Kampanya, saatlik harcama ve ödeme durumu" },
   { key: "ga4", label: "GA4", description: "Trafik ve anahtar etkinlikler" },
   { key: "gtm", label: "Tag Manager", description: "Etiket yapılandırması" },
   { key: "gsc", label: "Search Console", description: "Organik arama sorguları" },
@@ -29,11 +29,11 @@ export function integrationForJob(
   service: string,
 ): IntegrationKey | null {
   if (provider === "meta") {
-    return ["insights", "ad_insights", "ads", "billing", "hourly", "account_status"].includes(service)
+    return ["insights", "ad_insights", "ads", "hourly", "account_status"].includes(service)
       ? "meta"
       : null;
   }
-  if (["ads", "billing", "hourly", "account_status"].includes(service)) return "google_ads";
+  if (["ads", "hourly", "account_status"].includes(service)) return "google_ads";
   if (service === "ga4") return "ga4";
   if (service === "gtm") return "gtm";
   if (service === "gsc") return "gsc";

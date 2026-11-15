@@ -1,6 +1,5 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
-import BudgetPlanVsActual from "@/components/panel/BudgetPlanVsActual";
 import CreativeImage from "@/components/panel/CreativeImage";
 import PeriodFilterBar from "@/components/panel/PeriodFilterBar";
 import { TimezoneNotice } from "@/components/panel/TimezoneNotice";
@@ -372,15 +371,6 @@ export default async function MetaPage({
             <li key={r}>• {r}</li>
           ))}
         </ul>
-      ) : null}
-
-      {budgetPlan ? (
-        <BudgetPlanVsActual
-          plan={budgetPlan}
-          provider="meta"
-          variant="compact"
-          statusReasons={status.meta.reasons.map((r) => r.text)}
-        />
       ) : null}
 
       {unknown ? (
