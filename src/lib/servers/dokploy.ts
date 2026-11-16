@@ -242,14 +242,29 @@ async function instanceInventory(
 }
 
 type Cache = { at: number; data: Inventory };
-const g = globalThis as typeof globalThis & { __593Inventory?: Cache };
+const g = globalThis as typeof globalThis & { __593Inventory?: Cache; __593InventoryLoading?: Promise<Inventory> };
 const CACHE_MS = 60_000;
 
-/** Tüm kurulumların envanteri. 60 sn bellekte tutulur; `force` yeniler. */
+/**
+ * Tüm kurulumların envanteri. Bellekteki kopya hemen döner; 60 sn'den eskiyse
+ * arka planda yenilenir (sayfa Dokploy'u beklemez). `force` tazesini bekler.
+ */
 export async function loadInventory(force = false): Promise<Inventory> {
-  if (!force && g.__593Inventory && Date.now() - g.__593Inventory.at < CACHE_MS) {
-    return g.__593Inventory.data;
+  const cached = g.__593Inventory;
+  if (!force && cached) {
+    if (Date.now() - cached.at >= CACHE_MS) void refreshInventory().catch(() => undefined);
+    return cached.data;
   }
+  return refreshInventory();
+}
+
+function refreshInventory(): Promise<Inventory> {
+  return (g.__593InventoryLoading ??= fetchInventory().finally(() => {
+    g.__593InventoryLoading = undefined;
+  }));
+}
+
+async function fetchInventory(): Promise<Inventory> {
   const data: Inventory = { servers: [], projects: [], errors: {}, fetchedAt: new Date().toISOString() };
   await Promise.all(
     dokployInstances().map(async (inst) => {

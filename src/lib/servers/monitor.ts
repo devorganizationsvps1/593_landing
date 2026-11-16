@@ -14,6 +14,7 @@ import {
   SSL_WARN_DAYS,
 } from "./config";
 import { dokployCall, fetchServerMetrics, instanceOf, loadInventory, localServerKey } from "./dokploy";
+import { hostingKey, hostingPeriod } from "./hosting";
 import { localMetrics } from "./local-metrics";
 import { CLEANUP_ACTIONS, type CleanupAction, type MetricSnapshot, type ServerInfo } from "./types";
 
@@ -241,6 +242,33 @@ async function collectServer(server: ServerInfo, inv: Awaited<ReturnType<typeof 
   }
   await syncConditions(server, "site_down", down);
   await syncConditions(server, "ssl_expiring", ssl);
+
+  // Hosting dönemi: 7 gün kala ve dolunca (ödeme alınana kadar açık kalır).
+  const hostingKeys = new Map(
+    inv.projects
+      .filter((p) => p.services[0]?.serverKey === server.key)
+      .map((p) => [hostingKey(server.instanceId, p.id), p.name] as const),
+  );
+  const accounts = await prisma.hostingAccount.findMany({
+    where: { key: { in: [...hostingKeys.keys()] }, hidden: false },
+  });
+  await syncConditions(
+    server,
+    "hosting_due",
+    accounts.flatMap((a) => {
+      const { daysLeft, end } = hostingPeriod(a.paidUntil);
+      if (daysLeft > 7) return [];
+      const name = hostingKeys.get(a.key) ?? a.key;
+      return [
+        {
+          subject: `${a.key}|${end.toISOString().slice(0, 10)}`,
+          severity: "warn" as const,
+          title: daysLeft <= 0 ? `Hosting süresi doldu: ${name}` : `Hosting süresi ${daysLeft} gün sonra doluyor: ${name}`,
+          detail: a.yearlyFee ? `Yıllık ${a.yearlyFee} ${a.currency}` : undefined,
+        },
+      ];
+    }),
+  );
 
   // Ödeme hatırlatması (3 gün kala).
   const meta = await prisma.managedServer.findUnique({ where: { key: server.key } });

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/panel/audit";
 import { requirePermissionApi } from "@/lib/panel/staff-auth";
-import { loadInventory } from "@/lib/servers/dokploy";
+import { fetchDockerDiskUsage, loadInventory } from "@/lib/servers/dokploy";
+import { markHostingPaid } from "@/lib/servers/hosting";
 import { collectAll, runCleanup, setAutoCleanup } from "@/lib/servers/monitor";
 import { CLEANUP_ACTIONS, type CleanupAction } from "@/lib/servers/types";
 
@@ -14,6 +15,14 @@ type Body = {
   key?: string;
   action?: string;
   enabled?: boolean;
+  name?: string;
+  hosting?: {
+    paidUntil?: string;
+    yearlyFee?: number | string | null;
+    currency?: string | null;
+    note?: string | null;
+    hidden?: boolean;
+  };
   meta?: {
     purchasedAt?: string | null;
     provider?: string | null;
@@ -29,9 +38,12 @@ const bad = (error: string, status = 400) => NextResponse.json({ error }, { stat
 /**
  * POST — sunucu yönetimi işlemleri (yalnızca admin):
  *   { op: "refresh" }                               şimdi ölç + kontrol et
+ *   { op: "dockerDisk", key }                       Docker disk dökümü
  *   { op: "cleanup", key, action }                  Docker temizliği
  *   { op: "autoCleanup", key, enabled }             Dokploy günlük temizliği
  *   { op: "meta", key, meta }                       satın alma tarihi, maliyet…
+ *   { op: "hostingPaid", key }                      hosting dönemini 1 yıl ilerlet
+ *   { op: "hostingSave", key, hosting }             dönem bitişi, ücret, not, gizle
  */
 export async function POST(request: Request) {
   const { session, error } = await requirePermissionApi("servers.manage");
@@ -46,8 +58,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...result });
     }
 
+    if (body.op === "hostingPaid" || body.op === "hostingSave") {
+      if (!body.key) return bad("Geçersiz istek");
+      if (body.op === "hostingPaid") {
+        const a = await markHostingPaid(body.key);
+        await audit(session, {
+          action: "hosting.paid",
+          entity: "server",
+          entityId: body.key,
+          summary: `Hosting ödemesi alındı: ${body.name ?? body.key} → ${a.paidUntil.toISOString().slice(0, 10)}`,
+        });
+        return NextResponse.json({ ok: true });
+      }
+      const h = body.hosting ?? {};
+      if (!h.paidUntil || !/^\d{4}-\d{2}-\d{2}$/.test(h.paidUntil)) return bad("Dönem bitiş tarihi geçersiz");
+      const fee = h.yearlyFee === "" || h.yearlyFee == null ? null : Number(h.yearlyFee);
+      if (fee != null && (!Number.isFinite(fee) || fee < 0)) return bad("Yıllık ücret geçersiz");
+      const data = {
+        paidUntil: new Date(`${h.paidUntil}T00:00:00Z`),
+        yearlyFee: fee,
+        currency: (h.currency?.trim() || "TRY").toUpperCase().slice(0, 3),
+        note: h.note?.trim() || null,
+        hidden: h.hidden === true,
+      };
+      await prisma.hostingAccount.update({ where: { key: body.key }, data });
+      await audit(session, {
+        action: "hosting.update",
+        entity: "server",
+        entityId: body.key,
+        summary: `Hosting kaydı güncellendi: ${body.name ?? body.key}`,
+        after: data,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     const server = (await loadInventory()).servers.find((s) => s.key === body.key);
     if (!server) return bad("Sunucu bulunamadı", 404);
+
+    if (body.op === "dockerDisk") {
+      return NextResponse.json({ ok: true, items: await fetchDockerDiskUsage(server) });
+    }
 
     if (body.op === "cleanup") {
       if (!body.action || !(body.action in CLEANUP_ACTIONS)) return bad("Geçersiz temizlik türü");

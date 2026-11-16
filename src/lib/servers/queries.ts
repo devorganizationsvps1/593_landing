@@ -1,7 +1,7 @@
 /** /sunucular sayfasının verisi — envanter + DB geçmişi + canlı ölçüm. */
 import { prisma } from "@/lib/db";
 import { dokployInstances, dokployMock } from "./config";
-import { fetchDockerDiskUsage, loadInventory, localServerKey, type DockerDiskItem } from "./dokploy";
+import { loadInventory, localServerKey } from "./dokploy";
 import { lastLiveSample, nextRenewal, sampleServer, type LiveSample } from "./monitor";
 import { RANGES, type ProjectInfo, type RangeKey, type ServerInfo } from "./types";
 
@@ -74,8 +74,6 @@ export type ServerPageData = {
     sampleCount: number;
     /** Mevcut eğilimle diskin dolmasına kalan gün; eğilim yoksa null. */
     diskFullInDays: number | null;
-    /** Docker disk dökümü — yalnızca istendiğinde (temizlik sekmesi) ve destekleniyorsa. */
-    dockerDisk: DockerDiskItem[] | null;
     projects: ProjectInfo[];
     sites: Record<string, SiteStatus>;
     events: ServerEventRow[];
@@ -110,7 +108,8 @@ function diskForecast(points: Array<{ at: Date; diskPct: number | null }>): numb
 export async function loadServerPage(opts: {
   key?: string;
   range?: string;
-  withDockerDisk?: boolean;
+  /** Yalnızca üst sekmeler (hosting sayfası için). */
+  tabsOnly?: boolean;
 }): Promise<ServerPageData> {
   const configured = dokployInstances().length > 0;
   if (!configured) return { configured, mock: false, tabs: [], selected: null };
@@ -144,16 +143,19 @@ export async function loadServerPage(opts: {
   });
 
   const server = inv.servers.find((s) => s.key === opts.key) ?? inv.servers[0];
-  if (!server) return { configured, mock: dokployMock(), tabs, selected: null };
+  if (!server || opts.tabsOnly) return { configured, mock: dokployMock(), tabs, selected: null };
 
   const range: RangeKey = opts.range && opts.range in RANGES ? (opts.range as RangeKey) : "24h";
   const since = new Date(Date.now() - RANGES[range].ms);
   const instanceError = inv.errors[server.instanceId] ?? null;
 
+  // Canlı ölçüm sayfayı bekletmez: bellekteki son ölçüm (zamanlayıcı 5 dk'da
+  // bir yeniler) kullanılır; eskiyse arka planda tazelenir.
   const cached = lastLiveSample(server.key);
-  const fresh = cached && Date.now() - new Date(cached.at).getTime() < 60_000;
-  const [liveSample, rows, weekRows, metaRow, events, checks, dockerDisk] = await Promise.all([
-    instanceError ? Promise.resolve(null) : fresh ? Promise.resolve(cached) : sampleServer(server),
+  if (!instanceError && (!cached || Date.now() - new Date(cached.at).getTime() > 90_000)) {
+    void sampleServer(server).catch(() => undefined);
+  }
+  const [rows, weekRows, metaRow, events, checks] = await Promise.all([
     prisma.serverSample.findMany({ where: { serverKey: server.key, at: { gte: since } }, orderBy: { at: "asc" } }),
     prisma.serverSample.findMany({
       where: { serverKey: server.key, at: { gte: new Date(Date.now() - 7 * 86_400_000) }, up: true },
@@ -166,8 +168,36 @@ export async function loadServerPage(opts: {
       where: { serverKey: server.key, at: { gte: new Date(Date.now() - 86_400_000) } },
       orderBy: { at: "desc" },
     }),
-    opts.withDockerDisk && !instanceError ? fetchDockerDiskUsage(server) : Promise.resolve(null),
   ]);
+  // Süreç yeni başladıysa bellekte ölçüm yoktur → son kayıtlı ölçümden kur.
+  const lastRow = rows.at(-1);
+  const liveSample: LiveSample | null =
+    cached ??
+    (lastRow
+      ? {
+          at: lastRow.at.toISOString(),
+          source: "dokploy",
+          up: lastRow.up,
+          error: null,
+          metric: lastRow.up
+            ? {
+                cpuPct: lastRow.cpuPct,
+                memPct: lastRow.memPct,
+                memTotalGb: lastRow.memTotalGb,
+                diskPct: lastRow.diskPct,
+                diskTotalGb: lastRow.diskTotalGb,
+                netInMb: lastRow.netInMb,
+                netOutMb: lastRow.netOutMb,
+                uptimeSec: lastRow.uptimeSec,
+                os: null,
+                kernel: null,
+                arch: null,
+                cpuModel: null,
+                cpuCores: null,
+              }
+            : null,
+        }
+      : null);
 
   // Ağ: sayaç farkı → MB/sn (sayaç sıfırlandıysa atlanır).
   const raw: SeriesPoint[] = rows.map((r, i) => {
@@ -245,7 +275,6 @@ export async function loadServerPage(opts: {
       uptimePct: rows.length ? (rows.filter((r) => r.up).length / rows.length) * 100 : null,
       sampleCount: rows.length,
       diskFullInDays: diskForecast(weekRows),
-      dockerDisk,
       projects,
       sites,
       events: events.map((e) => ({

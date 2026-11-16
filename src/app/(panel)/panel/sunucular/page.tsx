@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import ServerDashboard from "@/components/panel/servers/ServerDashboard";
 import { isStaffRole } from "@/lib/panel/host";
 import { can } from "@/lib/panel/permissions";
+import { loadHosting } from "@/lib/servers/hosting";
 import { loadServerPage } from "@/lib/servers/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function ServersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ s?: string; range?: string; v?: string; p?: string }>;
+  searchParams: Promise<{ s?: string; range?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -25,10 +26,11 @@ export default async function ServersPage({
   if (!can(session.user.role, "servers.manage")) redirect("/brands");
 
   const sp = await searchParams;
-  const data = await loadServerPage({
-    key: sp.s,
-    range: sp.range,
-    withDockerDisk: sp.v === "temizlik" && !sp.p,
-  });
-  return <ServerDashboard data={data} view={sp.v} projectId={sp.p} />;
+  // Sekme (v) ve proje (p) istemcide okunur — değişince sunucuya gidilmez.
+  if (sp.s === "hosting") {
+    const [data, hosting] = await Promise.all([loadServerPage({ tabsOnly: true }), loadHosting()]);
+    return <ServerDashboard data={data} hosting={data.configured ? hosting : null} />;
+  }
+  const data = await loadServerPage({ key: sp.s, range: sp.range });
+  return <ServerDashboard data={data} hosting={null} />;
 }

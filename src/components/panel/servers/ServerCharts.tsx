@@ -109,17 +109,17 @@ function Frame({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel">
+    <section className="px-5 py-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-panel-fg">{title}</h3>
-          {note ? <p className="text-xs text-panel-fg-secondary">{note}</p> : null}
+          <h3 className="text-[15px] font-semibold text-panel-fg">{title}</h3>
+          {note ? <p className="text-[13px] text-panel-fg-secondary">{note}</p> : null}
         </div>
         <Legend series={series} />
       </div>
       <div className="h-52 w-full">
         {empty ? (
-          <div className="flex h-full items-center justify-center rounded-panel-md bg-panel-surface-muted px-4 text-center text-sm text-panel-fg-secondary">
+          <div className="flex h-full items-center justify-center bg-panel-surface-muted px-4 text-center text-[13px] text-panel-fg-secondary">
             Bu aralıkta henüz ölçüm yok. Ölçümler 5 dakikada bir kaydedilir.
           </div>
         ) : (
@@ -194,7 +194,7 @@ export function ServerCharts({
   const margin = { top: 8, right: 8, left: 0, bottom: 0 };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid divide-y divide-panel-border lg:grid-cols-2 lg:[&>*:nth-child(2)]:border-r lg:[&>*:nth-child(2)]:border-panel-border lg:[&>*:nth-child(3)]:border-t lg:[&>*:nth-child(3)]:border-panel-border">
       <div className="lg:col-span-2">
         <Frame title="CPU ve RAM kullanımı" note="Yüzde; çizgideki boşluklar ölçüm alınamayan anlardır." series={load} empty={!hasData(data, ["cpu", "mem"])}>
           <ResponsiveContainer width="100%" height="100%">

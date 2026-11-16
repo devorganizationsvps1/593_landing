@@ -1225,3 +1225,17 @@ model ServerEvent {
   @@index([serverKey, at])
   @@index([serverKey, kind, subject, resolvedAt])
 }
+
+/// Hosting takibi — firma (Dokploy projesi) başına yıllık dönem.
+/// key = "<kurulum>:<projectId>". Dönem = paidUntil'den geriye 1 yıl.
+model HostingAccount {
+  key       String    @id
+  /// Dönemin bittiği gün; "Ödeme alındı" 1 yıl ileri alır.
+  paidUntil DateTime  @db.Date
+  yearlyFee Decimal?  @db.Decimal(10, 2)
+  currency  String    @default("TRY")
+  note      String?
+  /// Takip edilmeyen projeler (ajansın kendi siteleri vb.).
+  hidden    Boolean   @default(false)
+  updatedAt DateTime  @updatedAt
+}

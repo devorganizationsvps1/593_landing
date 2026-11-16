@@ -1,81 +1,40 @@
 "use client";
 
-import {
-  Activity,
-  AlertTriangle,
-  ArrowLeft,
-  Bell,
-  ChevronRight,
-  Cpu,
-  FolderKanban,
-  HardDrive,
-  MemoryStick,
-  CheckCircle2,
-  CircleHelp,
-  Database,
-  ExternalLink,
-  Layers,
-  Package,
-  Pencil,
-  RefreshCw,
-  Server,
-  Trash2,
-  XCircle,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { btnGhost, btnPrimary, btnSecondary, chipClass, fieldClass } from "@/components/panel/ds/buttons";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import { DISK_CRITICAL_PCT, DISK_WARN_PCT } from "@/lib/servers/config";
+import type { HostingRow } from "@/lib/servers/hosting";
 import type { ServerMeta, ServerPageData, SiteStatus } from "@/lib/servers/queries";
 import { CLEANUP_ACTIONS, RANGES, type CleanupAction, type ProjectInfo, type RangeKey, type ServiceInfo } from "@/lib/servers/types";
+import HostingTracker from "./HostingTracker";
 import { ServerCharts } from "./ServerCharts";
+import {
+  BTN,
+  BTN_QUIET,
+  BTN_SOLID,
+  FIELD,
+  FRAME,
+  LABEL,
+  SoftLink,
+  Status,
+  TONE_DOT,
+  age,
+  fmtDate,
+  fmtDateTime,
+  pct,
+  post,
+  type Tone,
+} from "./ui";
 
-type Tone = "ok" | "warn" | "critical" | "unknown";
-
-const TONE: Record<Tone, { Icon: LucideIcon; text: string; pill: string; bar: string }> = {
-  ok: { Icon: CheckCircle2, text: "text-panel-ok", pill: "bg-panel-ok-bg text-panel-ok border-panel-ok/20", bar: "bg-panel-ok" },
-  warn: { Icon: AlertTriangle, text: "text-panel-warn", pill: "bg-panel-warn-bg text-panel-warn border-panel-warn/25", bar: "bg-panel-warn" },
-  critical: { Icon: XCircle, text: "text-panel-critical", pill: "bg-panel-critical-bg text-panel-critical border-panel-critical/25", bar: "bg-panel-critical" },
-  unknown: { Icon: CircleHelp, text: "text-panel-unknown", pill: "bg-panel-unknown-bg text-panel-unknown border-panel-border-strong", bar: "bg-panel-border-strong" },
-};
-
-function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  const { Icon, pill } = TONE[tone];
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold ${pill}`}>
-      <Icon className="size-3.5 shrink-0" aria-hidden strokeWidth={2.25} />
-      {children}
-    </span>
-  );
-}
-
-const TZ = "Europe/Istanbul";
-const fmtDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("tr-TR", { timeZone: TZ, day: "2-digit", month: "short", year: "numeric" }) : "—";
-const fmtDateTime = (iso: string | null) =>
-  iso
-    ? new Date(iso).toLocaleString("tr-TR", { timeZone: TZ, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-    : "—";
-const pct = (v: number | null | undefined, d = 0) => (v == null ? "—" : `%${v.toFixed(d)}`);
-
-function age(iso: string | null): string {
-  if (!iso) return "—";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days < 1) return "bugün";
-  if (days < 31) return `${days} gün`;
-  const months = Math.floor(days / 30.44);
-  if (months < 12) return `${months} ay`;
-  const years = Math.floor(months / 12);
-  return months % 12 ? `${years} yıl ${months % 12} ay` : `${years} yıl`;
-}
+/* ───────── yardımcılar ───────── */
 
 function duration(sec: number | null | undefined): string {
   if (sec == null) return "—";
   const d = Math.floor(sec / 86_400);
   const h = Math.floor((sec % 86_400) / 3600);
-  return d > 0 ? `${d} gün ${h} sa` : `${h} sa ${Math.floor((sec % 3600) / 60)} dk`;
+  return d > 0 ? `${d} gün ${h} saat` : `${h} saat ${Math.floor((sec % 3600) / 60)} dk`;
 }
 
 function loadTone(v: number | null | undefined, warn: number, critical: number): Tone {
@@ -83,72 +42,7 @@ function loadTone(v: number | null | undefined, warn: number, critical: number):
   return v >= critical ? "critical" : v >= warn ? "warn" : "ok";
 }
 
-async function post(body: unknown): Promise<{ ok: boolean; data: Record<string, unknown> }> {
-  const res = await fetch("/api/panel/servers", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = ((await res.json().catch(() => null)) ?? {}) as Record<string, unknown>;
-  return { ok: res.ok, data };
-}
-
-/* ───────── parçalar ───────── */
-
-function Meter({
-  icon,
-  label,
-  value,
-  tone,
-  sub,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  value: number | null | undefined;
-  tone: Tone;
-  sub?: React.ReactNode;
-}) {
-  const t = TONE[tone];
-  const word = tone === "critical" ? "Kritik" : tone === "warn" ? "Yüksek" : tone === "ok" ? "Normal" : "Ölçüm yok";
-  return (
-    <div className="rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-panel-fg-secondary">
-          {icon}
-          {label}
-        </span>
-        <span className={`inline-flex items-center gap-1 text-xs font-semibold ${t.text}`}>
-          <t.Icon className="size-3.5" aria-hidden />
-          {word}
-        </span>
-      </div>
-      <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-panel-fg">{pct(value, 1)}</p>
-      <div
-        className="mt-3 h-2 overflow-hidden rounded-full bg-panel-surface-muted"
-        role="meter"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={value ?? undefined}
-      >
-        <div className={`h-full rounded-full ${t.bar}`} style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
-      </div>
-      {sub ? <p className="mt-2 text-xs text-panel-fg-secondary">{sub}</p> : null}
-    </div>
-  );
-}
-
-function Fact({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-panel-fg-muted">{label}</dt>
-      <dd className="mt-1 truncate text-sm font-semibold text-panel-fg">{value}</dd>
-      {hint ? <dd className="truncate text-xs text-panel-fg-secondary">{hint}</dd> : null}
-    </div>
-  );
-}
-
-const STATUS: Record<string, { tone: Tone; label: string }> = {
+const SERVICE_STATUS: Record<string, { tone: Tone; label: string }> = {
   done: { tone: "ok", label: "Çalışıyor" },
   running: { tone: "warn", label: "Deploy ediliyor" },
   idle: { tone: "unknown", label: "Durduruldu" },
@@ -166,68 +60,6 @@ const KIND_LABEL: Record<ServiceInfo["kind"], string> = {
   libsql: "libSQL",
 };
 
-function KindIcon({ kind }: { kind: ServiceInfo["kind"] }) {
-  const Icon = kind === "application" ? Package : kind === "compose" ? Layers : Database;
-  return <Icon className="size-5 shrink-0" aria-hidden />;
-}
-
-function SiteCell({ host, site }: { host: string; site: SiteStatus | undefined }) {
-  const sslTone: Tone =
-    site?.sslDaysLeft == null ? "unknown" : site.sslDaysLeft <= 3 ? "critical" : site.sslDaysLeft <= 14 ? "warn" : "ok";
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <a
-        href={`https://${host}`}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center gap-1 font-medium text-panel-fg hover:underline"
-      >
-        {host}
-        <ExternalLink className="size-3 text-panel-fg-muted" aria-hidden />
-      </a>
-      {site ? (
-        <>
-          <Pill tone={site.ok ? "ok" : "critical"}>
-            {site.ok ? `${site.status ?? "OK"} · ${site.ms ?? "?"} ms` : site.error ?? "Açılmıyor"}
-          </Pill>
-          {site.uptime24h != null ? (
-            <span className="text-xs tabular-nums text-panel-fg-secondary">24 sa erişim {pct(site.uptime24h, 1)}</span>
-          ) : null}
-          {site.sslDaysLeft != null ? (
-            <span className={`text-xs tabular-nums ${sslTone === "ok" ? "text-panel-fg-secondary" : `font-semibold ${TONE[sslTone].text}`}`}>
-              SSL {site.sslDaysLeft < 0 ? "süresi doldu" : `${site.sslDaysLeft} gün`}
-            </span>
-          ) : null}
-        </>
-      ) : (
-        <span className="text-xs text-panel-fg-muted">henüz kontrol edilmedi</span>
-      )}
-    </div>
-  );
-}
-
-/** Proje kimlik renkleri — yalnızca avatar zemini; beyaz harfle kontrastlı. */
-const HUES = ["#2563eb", "#7c3aed", "#be185d", "#c2410c", "#047857", "#0e7490", "#4f46e5", "#a16207"];
-function hueOf(name: string): string {
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return HUES[h % HUES.length];
-}
-
-function Avatar({ name, size = "md" }: { name: string; size?: "md" | "lg" }) {
-  return (
-    <span
-      aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-xl font-bold uppercase text-white ${
-        size === "lg" ? "size-14 text-2xl" : "size-11 text-lg"
-      }`}
-      style={{ background: hueOf(name) }}
-    >
-      {name.trim().charAt(0) || "?"}
-    </span>
-  );
-}
-
 function projectHealth(project: ProjectInfo, sites: Record<string, SiteStatus>): { tone: Tone; label: string } {
   const hosts = project.services.flatMap((s) => s.domains.map((d) => d.host));
   const siteDown = hosts.filter((h) => sites[h] && !sites[h].ok).length;
@@ -239,48 +71,92 @@ function projectHealth(project: ProjectInfo, sites: Record<string, SiteStatus>):
   return { tone: "unknown", label: "Durduruldu" };
 }
 
-const KIND_TINT: Record<"app" | "compose" | "db", string> = {
-  app: "bg-[#2563eb]/10 text-[#2563eb]",
-  compose: "bg-[#7c3aed]/10 text-[#7c3aed]",
-  db: "bg-[#047857]/10 text-[#047857]",
-};
-const kindGroup = (k: ServiceInfo["kind"]) => (k === "application" ? "app" : k === "compose" ? "compose" : "db");
+/* ───────── parçalar ───────── */
 
-/** Proje kutucuğu — ayrıntı alt sayfada. */
-function ProjectTile({ project, sites, href }: { project: ProjectInfo; sites: Record<string, SiteStatus>; href: string }) {
+/** Gösterge hücresi: büyük rakam, altında ince çubuk. */
+function Meter({ label, value, tone, sub }: { label: string; value: number | null | undefined; tone: Tone; sub?: React.ReactNode }) {
+  const word = tone === "critical" ? "kritik" : tone === "warn" ? "yüksek" : null;
+  return (
+    <div className="px-5 py-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px] font-medium text-panel-fg-secondary">{label}</span>
+        {word ? <Status tone={tone}>{word}</Status> : null}
+      </div>
+      <p className="mt-1 text-[28px] font-semibold leading-none tabular-nums tracking-tight text-panel-fg">{pct(value, 1)}</p>
+      <div
+        className="mt-3 h-1 bg-[#e7e5e4]"
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value ?? undefined}
+      >
+        <div
+          className={`h-full ${tone === "ok" ? "bg-[#141111]" : TONE_DOT[tone]}`}
+          style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }}
+        />
+      </div>
+      <p className="mt-2 min-h-[1.25rem] text-[13px] tabular-nums text-panel-fg-secondary">{sub}</p>
+    </div>
+  );
+}
+
+function Fact({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
+  return (
+    <div className="min-w-0 px-5 py-3">
+      <dt className="text-[13px] text-panel-fg-secondary">{label}</dt>
+      <dd className="mt-0.5 truncate text-[15px] font-semibold tabular-nums text-panel-fg">{value}</dd>
+      {hint ? <dd className="truncate text-[12px] text-panel-fg-secondary">{hint}</dd> : null}
+    </div>
+  );
+}
+
+function SiteLine({ host, site }: { host: string; site: SiteStatus | undefined }) {
+  const sslBad = site?.sslDaysLeft != null && site.sslDaysLeft <= 14;
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-2 text-[13px] sm:grid-cols-[minmax(0,1fr)_9rem_8rem_7rem]">
+      <a href={`https://${host}`} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1.5 font-medium text-panel-fg hover:underline">
+        <span className="truncate">{host}</span>
+        <ExternalLink className="size-3 shrink-0 text-panel-fg-muted" aria-hidden />
+      </a>
+      {site ? (
+        <>
+          <Status tone={site.ok ? "ok" : "critical"}>
+            {site.ok ? `${site.status ?? "Açık"}, ${site.ms ?? "?"} ms` : (site.error ?? "Açılmıyor")}
+          </Status>
+          <span className="tabular-nums text-panel-fg-secondary">
+            {site.uptime24h != null ? `24 saat ${pct(site.uptime24h, 1)}` : ""}
+          </span>
+          <span className={`tabular-nums ${sslBad ? "font-semibold text-panel-critical" : "text-panel-fg-secondary"}`}>
+            {site.sslDaysLeft == null ? "" : site.sslDaysLeft < 0 ? "SSL doldu" : `SSL ${site.sslDaysLeft} gün`}
+          </span>
+        </>
+      ) : (
+        <span className="text-panel-fg-muted sm:col-span-3">henüz kontrol edilmedi</span>
+      )}
+    </div>
+  );
+}
+
+/** Proje kutusu — ızgarada komşularıyla çizgi paylaşır; ayrıntı alt sayfada. */
+function ProjectCell({ project, sites, href }: { project: ProjectInfo; sites: Record<string, SiteStatus>; href: string }) {
   const health = projectHealth(project, sites);
   const host = project.services.flatMap((s) => s.domains)[0]?.host;
-  const groups = { app: 0, compose: 0, db: 0 };
-  for (const s of project.services) groups[kindGroup(s.kind)]++;
   return (
-    <Link
+    <SoftLink
       href={href}
-      className="group flex flex-col gap-4 overflow-hidden rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel transition hover:-translate-y-0.5 hover:border-panel-border-strong hover:shadow-panel-md"
+      className="relative flex min-h-[7.5rem] flex-col border-b border-r border-panel-border px-5 py-4 transition-colors hover:bg-panel-surface-muted focus-visible:bg-panel-surface-muted"
     >
-      <div className="flex items-start gap-3">
-        <Avatar name={project.name} />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-panel-fg">{project.name}</h3>
-          <p className="truncate text-xs text-panel-fg-secondary">{project.description ?? host ?? "Domain yok"}</p>
-        </div>
-        <ChevronRight className="size-4 shrink-0 text-panel-fg-muted transition group-hover:translate-x-0.5 group-hover:text-panel-fg" aria-hidden />
+      <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${TONE_DOT[health.tone]}`} />
+      <h3 className="truncate text-[15px] font-semibold text-panel-fg">{project.name}</h3>
+      <p className="truncate text-[13px] text-panel-fg-secondary">{host ?? project.description ?? "Domain yok"}</p>
+      <div className="mt-auto flex items-end justify-between gap-3 pt-4 text-[13px]">
+        <Status tone={health.tone}>{health.label}</Status>
+        <span className="shrink-0 tabular-nums text-panel-fg-secondary" title={fmtDate(project.createdAt)}>
+          {project.services.length} servis, {age(project.createdAt)}
+        </span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Pill tone={health.tone}>{health.label}</Pill>
-        {(["app", "compose", "db"] as const).map((g) =>
-          groups[g] ? (
-            <span key={g} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold ${KIND_TINT[g]}`}>
-              {g === "app" ? <Package className="size-3.5" aria-hidden /> : g === "compose" ? <Layers className="size-3.5" aria-hidden /> : <Database className="size-3.5" aria-hidden />}
-              {groups[g]} {g === "app" ? "uygulama" : g === "compose" ? "compose" : "veritabanı"}
-            </span>
-          ) : null,
-        )}
-      </div>
-      <div className="mt-auto flex items-center justify-between border-t border-panel-border pt-3 text-xs text-panel-fg-secondary">
-        <span title={fmtDate(project.createdAt)}>{age(project.createdAt)} önce açıldı</span>
-        <span className="font-semibold text-panel-fg">{project.services.length} servis</span>
-      </div>
-    </Link>
+    </SoftLink>
   );
 }
 
@@ -298,100 +174,87 @@ function ProjectDetail({
 }) {
   const health = projectHealth(project, sites);
   const domainCount = project.services.reduce((n, s) => n + s.domains.length, 0);
-  const lastDeploy = project.services
-    .flatMap((s) => s.deploys)
-    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
+  const lastDeploy = project.services.flatMap((s) => s.deploys).sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
   return (
-    <div className="space-y-5">
-      <Link href={backHref} className="inline-flex items-center gap-1.5 text-sm font-semibold text-panel-fg-secondary hover:text-panel-fg">
-        <ArrowLeft className="size-4" aria-hidden />
-        {serverName} · Projeler
-      </Link>
-
-      <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 shadow-panel">
-        <div className="flex flex-wrap items-center gap-4">
-          <Avatar name={project.name} size="lg" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{project.name}</h2>
-              <Pill tone={health.tone}>{health.label}</Pill>
-            </div>
-            {project.description ? <p className="mt-1 text-sm text-panel-fg-secondary">{project.description}</p> : null}
-          </div>
-        </div>
-        <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
-          <Fact label="Açılış tarihi" value={fmtDate(project.createdAt)} hint={`${age(project.createdAt)} önce`} />
-          <Fact label="Servis" value={project.services.length} />
-          <Fact label="Domain" value={domainCount} />
-          <Fact label="Son deploy" value={fmtDateTime(lastDeploy?.at ?? null)} hint={lastDeploy?.title} />
-        </dl>
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {project.services.map((s) => {
-          const st = STATUS[s.status ?? ""] ?? { tone: "unknown" as Tone, label: s.status ?? "Bilinmiyor" };
-          return (
-            <section key={`${s.kind}:${s.id}`} className="flex flex-col gap-4 rounded-panel-lg border border-panel-border bg-panel-surface p-5 shadow-panel">
-              <div className="flex items-start gap-3">
-                <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${KIND_TINT[kindGroup(s.kind)]}`}>
-                  <KindIcon kind={s.kind} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-base font-semibold text-panel-fg">{s.name}</h3>
-                  <p className="text-xs text-panel-fg-secondary">
-                    {KIND_LABEL[s.kind]}
-                    {s.environment ? ` · ${s.environment}` : ""}
-                    {s.partial ? " · detay alınamadı" : ` · açılış ${fmtDate(s.createdAt)} (${age(s.createdAt)})`}
-                  </p>
-                </div>
-                <Pill tone={st.tone}>{st.label}</Pill>
-              </div>
-
-              {s.domains.length ? (
-                <div className="space-y-2 rounded-panel-md bg-panel-surface-muted p-3 text-sm">
-                  {s.domains.map((d) => (
-                    <SiteCell key={d.host} host={d.host} site={sites[d.host]} />
-                  ))}
-                </div>
-              ) : null}
-
-              {s.deploys.length ? (
-                <div>
-                  <h4 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-panel-fg-muted">Son deploylar</h4>
-                  <ul className="mt-2 space-y-1.5">
-                    {s.deploys.map((d) => {
-                      const tone: Tone = d.status === "done" ? "ok" : d.status === "error" ? "critical" : "warn";
-                      const Icon = TONE[tone].Icon;
-                      return (
-                        <li key={d.id} className="flex items-center gap-2 text-xs">
-                          <Icon className={`size-3.5 shrink-0 ${TONE[tone].text}`} aria-label={tone === "ok" ? "Başarılı" : tone === "critical" ? "Başarısız" : "Sürüyor"} />
-                          <span className="min-w-0 flex-1 truncate text-panel-fg">{d.status === "error" && d.error ? d.error : d.title}</span>
-                          <span className="shrink-0 tabular-nums text-panel-fg-muted">{fmtDateTime(d.at)}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ) : null}
-            </section>
-          );
-        })}
+    <section className={FRAME}>
+      <div className="border-b border-panel-border px-5 py-3">
+        <SoftLink href={backHref} className="inline-flex items-center gap-1.5 text-[13px] font-medium text-panel-fg-secondary hover:text-panel-fg">
+          <ArrowLeft className="size-4" aria-hidden />
+          {serverName} projeleri
+        </SoftLink>
       </div>
-    </div>
+      <header className="px-5 py-5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{project.name}</h2>
+          <Status tone={health.tone}>{health.label}</Status>
+        </div>
+        {project.description ? <p className="mt-1 text-[13px] text-panel-fg-secondary">{project.description}</p> : null}
+      </header>
+      <dl className="grid grid-cols-2 border-t border-panel-border sm:grid-cols-4 sm:divide-x sm:divide-panel-border">
+        <Fact label="Açılış tarihi" value={fmtDate(project.createdAt)} hint={`${age(project.createdAt)} önce`} />
+        <Fact label="Servis" value={project.services.length} />
+        <Fact label="Domain" value={domainCount} />
+        <Fact label="Son deploy" value={fmtDateTime(lastDeploy?.at)} hint={lastDeploy?.title} />
+      </dl>
+
+      {project.services.map((s) => {
+        const st = SERVICE_STATUS[s.status ?? ""] ?? { tone: "unknown" as Tone, label: s.status ?? "Bilinmiyor" };
+        return (
+          <article key={`${s.kind}:${s.id}`} className="border-t border-panel-border-strong">
+            <div className="grid items-baseline gap-x-6 gap-y-1 bg-panel-surface-muted px-5 py-3 sm:grid-cols-[minmax(0,1fr)_10rem_12rem]">
+              <h3 className="truncate text-[15px] font-semibold text-panel-fg">
+                {s.name}
+                <span className="ml-2 text-[13px] font-normal text-panel-fg-secondary">
+                  {KIND_LABEL[s.kind]}
+                  {s.environment ? `, ${s.environment}` : ""}
+                </span>
+              </h3>
+              <Status tone={st.tone}>{st.label}</Status>
+              <span className="text-[13px] tabular-nums text-panel-fg-secondary sm:text-right">
+                {s.partial ? "detay alınamadı" : `${fmtDate(s.createdAt)} açıldı`}
+              </span>
+            </div>
+
+            {s.domains.length ? (
+              <div className="divide-y divide-panel-border border-t border-panel-border px-5">
+                {s.domains.map((d) => (
+                  <SiteLine key={d.host} host={d.host} site={sites[d.host]} />
+                ))}
+              </div>
+            ) : null}
+
+            {s.deploys.length ? (
+              <table className="w-full text-[13px]">
+                <caption className="border-t border-panel-border px-5 pb-1 pt-3 text-left text-[13px] font-medium text-panel-fg-secondary">
+                  Son deploylar
+                </caption>
+                <tbody>
+                  {s.deploys.map((d) => {
+                    const tone: Tone = d.status === "done" ? "ok" : d.status === "error" ? "critical" : "warn";
+                    return (
+                      <tr key={d.id}>
+                        <td className="w-32 py-1.5 pl-5 pr-4 align-top">
+                          <Status tone={tone}>{tone === "ok" ? "Başarılı" : tone === "critical" ? "Başarısız" : "Sürüyor"}</Status>
+                        </td>
+                        <td className="max-w-0 truncate py-1.5 pr-4 text-panel-fg">{d.status === "error" && d.error ? d.error : d.title}</td>
+                        <td className="w-36 py-1.5 pr-5 text-right tabular-nums text-panel-fg-secondary">{fmtDateTime(d.at)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr aria-hidden>
+                    <td className="pb-2" colSpan={3} />
+                  </tr>
+                </tbody>
+              </table>
+            ) : null}
+          </article>
+        );
+      })}
+    </section>
   );
 }
 
-function MetaForm({
-  serverKey,
-  meta,
-  onClose,
-  onSaved,
-}: {
-  serverKey: string;
-  meta: ServerMeta;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+function MetaForm({ serverKey, meta, onClose, onSaved }: { serverKey: string; meta: ServerMeta; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
     purchasedAt: meta.purchasedAt ?? "",
     provider: meta.provider ?? "",
@@ -404,7 +267,6 @@ function MetaForm({
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  const label = "block text-xs font-semibold text-panel-fg-secondary";
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -417,46 +279,48 @@ function MetaForm({
   }
 
   return (
-    <form onSubmit={save} className="mt-5 grid gap-4 border-t border-panel-border pt-5 sm:grid-cols-2 lg:grid-cols-3">
-      <label className={label}>
+    <form onSubmit={save} className="grid gap-4 border-t border-panel-border bg-panel-surface-muted px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
+      <label className={LABEL}>
         Satın alma tarihi
-        <input type="date" value={form.purchasedAt} onChange={set("purchasedAt")} className={`${fieldClass} mt-1 w-full`} />
+        <input type="date" value={form.purchasedAt} onChange={set("purchasedAt")} className={`${FIELD} mt-1`} />
       </label>
-      <label className={label}>
+      <label className={LABEL}>
         Sağlayıcı
-        <input value={form.provider} onChange={set("provider")} placeholder="Hetzner, Contabo…" className={`${fieldClass} mt-1 w-full`} />
+        <input value={form.provider} onChange={set("provider")} placeholder="Hetzner, Contabo" className={`${FIELD} mt-1`} />
       </label>
-      <label className={label}>
+      <label className={LABEL}>
         Aylık ücret
         <span className="mt-1 flex gap-2">
-          <input type="number" min="0" step="0.01" value={form.monthlyCost} onChange={set("monthlyCost")} className={`${fieldClass} w-full`} />
-          <select value={form.currency} onChange={set("currency")} className={fieldClass} aria-label="Para birimi">
+          <input type="number" min="0" step="0.01" value={form.monthlyCost} onChange={set("monthlyCost")} className={FIELD} />
+          <select value={form.currency} onChange={set("currency")} className={`${FIELD} w-24`} aria-label="Para birimi">
             {["USD", "EUR", "TRY"].map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         </span>
       </label>
-      <label className={label}>
+      <label className={LABEL}>
         Ödeme günü (ayın kaçı)
-        <input type="number" min="1" max="31" value={form.renewalDay} onChange={set("renewalDay")} className={`${fieldClass} mt-1 w-full`} />
+        <input type="number" min="1" max="31" value={form.renewalDay} onChange={set("renewalDay")} className={`${FIELD} mt-1`} />
       </label>
-      <label className={`${label} sm:col-span-2`}>
+      <label className={LABEL}>
         Not
-        <input value={form.note} onChange={set("note")} className={`${fieldClass} mt-1 w-full`} />
+        <input value={form.note} onChange={set("note")} className={`${FIELD} mt-1`} />
       </label>
-      <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-3">
-        <button type="submit" disabled={saving} className={btnPrimary}>
-          {saving ? "Kaydediliyor…" : "Kaydet"}
-        </button>
-        <button type="button" onClick={onClose} className={btnGhost}>
+      <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-5 lg:justify-end">
+        {error ? <p className="mr-auto text-[13px] text-panel-critical">{error}</p> : null}
+        <button type="button" onClick={onClose} className={BTN_QUIET}>
           Vazgeç
         </button>
-        {error ? <p className="text-sm text-panel-critical">{error}</p> : null}
+        <button type="submit" disabled={saving} className={BTN_SOLID}>
+          {saving ? "Kaydediliyor…" : "Kaydet"}
+        </button>
       </div>
     </form>
   );
 }
+
+type DockerDiskItem = { type: string; sizeBytes: number; reclaimable: string | null; active: number | null; total: number | null };
 
 const DISK_TYPE_LABEL: Record<string, string> = {
   Images: "İmajlar",
@@ -469,27 +333,28 @@ function gb(bytes: number): string {
   return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
 }
 
-/** Docker'ın diskte kapladığı yer — büyükten küçüğe, tek renk çubuk + etiket. */
-function DockerDisk({ items }: { items: NonNullable<NonNullable<ServerPageData["selected"]>["dockerDisk"]> }) {
+/** Docker'ın diskte kapladığı yer — büyükten küçüğe, tek renk çubuk. */
+function DockerDisk({ items }: { items: DockerDiskItem[] }) {
   const sorted = [...items].sort((a, b) => b.sizeBytes - a.sizeBytes);
   const max = sorted[0]?.sizeBytes || 1;
   const total = sorted.reduce((n, i) => n + i.sizeBytes, 0);
   return (
-    <div className="border-b border-panel-border px-6 py-5">
-      <h3 className="text-sm font-semibold text-panel-fg">
+    <div className="border-b border-panel-border px-5 py-4">
+      <h3 className="text-[15px] font-semibold text-panel-fg">
         Docker şu an <span className="tabular-nums">{gb(total)}</span> yer kaplıyor
       </h3>
-      <ul className="mt-3 space-y-2.5">
+      <ul className="mt-3 space-y-2">
         {sorted.map((i) => (
-          <li key={i.type} className="grid grid-cols-[7.5rem_1fr] items-center gap-3 text-sm sm:grid-cols-[9rem_1fr_15rem]">
-            <span className="font-medium text-panel-fg">{DISK_TYPE_LABEL[i.type] ?? i.type}</span>
-            <span className="flex items-center gap-2">
-              <span className="h-2.5 rounded-r bg-[#c2410c]" style={{ width: `${Math.max(1, (i.sizeBytes / max) * 100)}%` }} />
+          <li key={i.type} className="grid grid-cols-[7rem_1fr] items-center gap-x-4 text-[13px] sm:grid-cols-[7rem_1fr_16rem]">
+            <span className="text-panel-fg">{DISK_TYPE_LABEL[i.type] ?? i.type}</span>
+            <span className="flex items-center gap-3">
+              <span className="h-2 bg-[#141111]" style={{ width: `${Math.max(0.5, (i.sizeBytes / max) * 100)}%` }} />
               <span className="shrink-0 font-semibold tabular-nums text-panel-fg">{gb(i.sizeBytes)}</span>
             </span>
-            <span className="col-span-2 text-xs text-panel-fg-secondary sm:col-span-1 sm:text-right">
-              {i.reclaimable ? `geri kazanılabilir ${i.reclaimable}` : ""}
-              {i.active != null && i.total != null ? ` · ${i.active}/${i.total} kullanımda` : ""}
+            <span className="col-span-2 text-panel-fg-secondary sm:col-span-1 sm:text-right">
+              {[i.reclaimable ? `${i.reclaimable} geri kazanılabilir` : null, i.active != null && i.total != null ? `${i.active}/${i.total} kullanımda` : null]
+                .filter(Boolean)
+                .join(", ")}
             </span>
           </li>
         ))}
@@ -498,58 +363,65 @@ function DockerDisk({ items }: { items: NonNullable<NonNullable<ServerPageData["
   );
 }
 
+/** Disk dökümü yavaş bir sorgudur (docker system df) — sekme açılınca ayrıca yüklenir. */
+function DockerDiskLoader({ serverKey, version }: { serverKey: string; version: number }) {
+  const [state, setState] = useState<{ key: string; items: DockerDiskItem[] | null } | null>(null);
+  const id = `${serverKey}#${version}`;
+  useEffect(() => {
+    let alive = true;
+    post({ op: "dockerDisk", key: serverKey }).then((r) => {
+      if (alive) setState({ key: id, items: (r.data.items as DockerDiskItem[] | null) ?? null });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [serverKey, id]);
+  if (state?.key !== id) {
+    return <p className="border-b border-panel-border px-5 py-4 text-[13px] text-panel-fg-secondary">Docker disk kullanımı hesaplanıyor…</p>;
+  }
+  return state.items ? <DockerDisk items={state.items} /> : null;
+}
+
 const VIEWS = [
-  { key: "projeler", label: "Projeler", Icon: FolderKanban, color: "#2563eb" },
-  { key: "grafikler", label: "Grafikler", Icon: Activity, color: "#7c3aed" },
-  { key: "temizlik", label: "Docker temizliği", Icon: Trash2, color: "#c2410c" },
-  { key: "olaylar", label: "Olaylar", Icon: Bell, color: "#be185d" },
+  { key: "projeler", label: "Projeler" },
+  { key: "grafikler", label: "Grafikler" },
+  { key: "temizlik", label: "Docker temizliği" },
+  { key: "olaylar", label: "Olaylar" },
 ] as const;
 type ViewKey = (typeof VIEWS)[number]["key"];
 
 const EVENT_TONE: Record<string, Tone> = { info: "unknown", warn: "warn", critical: "critical" };
+const HEALTH_LABEL: Record<Tone, string> = { ok: "Sağlıklı", warn: "Uyarı var", critical: "Sorun var", unknown: "Ölçüm yok" };
 
 /* ───────── ana bileşen ───────── */
 
-export default function ServerDashboard({
-  data,
-  view: viewParam,
-  projectId,
-}: {
-  data: ServerPageData;
-  view?: string;
-  projectId?: string;
-}) {
+export default function ServerDashboard({ data, hosting }: { data: ServerPageData; hosting: HostingRow[] | null }) {
+  const searchParams = useSearchParams();
+  const viewParam = searchParams.get("v");
+  const projectId = searchParams.get("p");
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: Tone; text: string } | null>(null);
   const [editing, setEditing] = useState(false);
+  const [diskVersion, setDiskVersion] = useState(0);
   const refresh = () => startTransition(() => router.refresh());
 
   if (!data.configured) {
     return (
-      <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-8 shadow-panel">
-        <div className="flex items-start gap-4">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-panel-accent-soft text-panel-accent">
-            <Server className="size-5" aria-hidden />
-          </span>
-          <div className="space-y-3 text-sm text-panel-fg-secondary">
-            <h2 className="text-base font-semibold text-panel-fg">Dokploy bağlantısı kurulmadı</h2>
-            <p>Sunucuları ve projeleri okuyabilmek için Dokploy API anahtarı gerekiyor.</p>
-            <ol className="list-decimal space-y-1 pl-5">
-              <li>Dokploy → Settings → Profile → API/CLI bölümünden anahtar üret.</li>
-              <li>
-                Panelin ortam değişkenlerine ekle: <code className="text-panel-fg">DOKPLOY_URL</code>,{" "}
-                <code className="text-panel-fg">DOKPLOY_API_KEY</code>, <code className="text-panel-fg">DOKPLOY_NAME</code>.
-              </li>
-              <li>
-                İkinci VPS&apos;te ayrı Dokploy varsa: <code className="text-panel-fg">DOKPLOY_2_URL</code>,{" "}
-                <code className="text-panel-fg">DOKPLOY_2_API_KEY</code>, <code className="text-panel-fg">DOKPLOY_2_NAME</code>.
-              </li>
-              <li>Paneli yeniden deploy et.</li>
-            </ol>
-          </div>
-        </div>
+      <section className={`${FRAME} px-5 py-6`}>
+        <h2 className="text-xl font-semibold tracking-tight text-panel-fg">Dokploy bağlantısı kurulmadı</h2>
+        <p className="mt-1 text-[13px] text-panel-fg-secondary">Sunucuları ve projeleri okuyabilmek için Dokploy API anahtarı gerekiyor.</p>
+        <ol className="mt-4 list-decimal space-y-1.5 pl-5 text-[13px] text-panel-fg">
+          <li>Dokploy&apos;da Profile sayfasındaki API/CLI Keys bölümünden anahtar üret.</li>
+          <li>
+            Panelin ortam değişkenlerine <code>DOKPLOY_URL</code>, <code>DOKPLOY_API_KEY</code> ve <code>DOKPLOY_NAME</code> ekle.
+          </li>
+          <li>
+            İkinci sunucu için <code>DOKPLOY_2_URL</code>, <code>DOKPLOY_2_API_KEY</code> ve <code>DOKPLOY_2_NAME</code> ekle.
+          </li>
+          <li>Paneli yeniden deploy et.</li>
+        </ol>
       </section>
     );
   }
@@ -578,7 +450,7 @@ export default function ServerDashboard({
       !r.ok
         ? { tone: "critical", text: String(r.data.error ?? "Yenilenemedi") }
         : errors.length
-          ? { tone: "warn", text: `Ölçüm alındı, bazı adımlar başarısız: ${errors.join(" · ")}` }
+          ? { tone: "warn", text: `Ölçüm alındı, bazı adımlar başarısız: ${errors.join("; ")}` }
           : { tone: "ok", text: "Ölçüm ve site kontrolleri yenilendi." },
     );
     refresh();
@@ -587,15 +459,14 @@ export default function ServerDashboard({
   async function cleanup(action: CleanupAction) {
     if (!sel) return;
     const spec = CLEANUP_ACTIONS[action];
-    const ok = confirm(
-      `${sel.server.name} — ${spec.label} temizlensin mi?\n\n${spec.hint}${spec.danger ? "\n\nBu işlem geri alınamaz." : ""}`,
-    );
+    const ok = confirm(`${sel.server.name}: ${spec.label} temizlensin mi?\n\n${spec.hint}${spec.danger ? "\n\nBu işlem geri alınamaz." : ""}`);
     if (!ok) return;
     if (spec.danger && prompt('Onaylamak için "SİL" yaz:') !== "SİL") return;
     setBusy(`cleanup:${action}`);
     setNotice(null);
     const r = await post({ op: "cleanup", key: sel.server.key, action });
     setBusy(null);
+    setDiskVersion((v) => v + 1);
     if (!r.ok) {
       setNotice({ tone: "critical", text: String(r.data.error ?? "Temizlik başarısız") });
     } else {
@@ -605,9 +476,7 @@ export default function ServerDashboard({
         tone: "ok",
         text:
           before != null && after != null
-            ? `${spec.label} temizlendi. Disk ${pct(before, 1)} → ${pct(after, 1)}${
-                Math.abs(before - after) < 0.05 ? " (ölçüm birkaç dakika içinde güncellenebilir)" : ""
-              }`
+            ? `${spec.label} temizlendi. Disk ${pct(before, 1)} iken ${pct(after, 1)} oldu.`
             : `${spec.label} temizlendi.`,
       });
     }
@@ -629,338 +498,301 @@ export default function ServerDashboard({
       ? "critical"
       : (data.tabs.find((t) => t.key === sel.server.key)?.health ?? "unknown")
     : "unknown";
-  const overallLabel =
-    overall === "critical" ? "Sorun var" : overall === "warn" ? "Uyarı var" : overall === "ok" ? "Sağlıklı" : "Ölçüm yok";
   const opened = sel ? (sel.meta.purchasedAt ?? sel.server.addedAt) : null;
+  const openEvents = sel?.events.filter((e) => !e.resolvedAt).length ?? 0;
+  const dueCount = hosting?.filter((h) => !h.hidden && h.daysLeft <= 0).length ?? 0;
+  const topTab = (active: boolean) =>
+    `flex min-w-0 flex-1 flex-col justify-center border-b-2 px-5 py-3 transition-colors sm:flex-none sm:min-w-44 ${
+      active ? "border-[#141111] bg-panel-surface" : "border-transparent hover:bg-panel-surface"
+    }`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {data.mock ? (
-        <p className="rounded-panel-md border border-panel-warn-border bg-panel-warn-bg px-4 py-2 text-sm text-panel-warn">
-          Örnek veri kipi (DOKPLOY_MOCK=1) — gösterilen sunucu ve projeler gerçek değil.
+        <p className="rounded-md border border-panel-warn-border bg-panel-warn-bg px-4 py-2 text-[13px] text-panel-warn">
+          Örnek veri kipi (DOKPLOY_MOCK=1): gösterilen sunucu ve projeler gerçek değil.
         </p>
       ) : null}
 
-      {/* Sunucu sekmeleri */}
-      <nav className="flex flex-wrap gap-3" aria-label="Sunucular">
+      {/* Üst sekmeler: hosting + sunucular */}
+      <nav className={`${FRAME} flex flex-wrap divide-x divide-panel-border bg-panel-surface-muted`} aria-label="Sunucu yönetimi">
+        <Link href="/sunucular?s=hosting" aria-current={hosting ? "page" : undefined} className={topTab(Boolean(hosting))}>
+          <span className="text-[15px] font-semibold text-panel-fg">Hosting takibi</span>
+          <span className="text-[13px] text-panel-fg-secondary">{hosting && dueCount ? `${dueCount} firmanın süresi doldu` : "Yıllık yenilemeler"}</span>
+        </Link>
         {data.tabs.map((t) => {
-          const active = t.key === sel?.server.key;
-          const tone = TONE[t.health];
+          const active = !hosting && t.key === sel?.server.key;
           return (
-            <Link
-              key={t.key}
-              href={link(t.key, { v: "projeler" })}
-              aria-current={active ? "page" : undefined}
-              className={`flex min-w-52 flex-1 items-center gap-3 rounded-panel-lg border px-4 py-3 transition sm:flex-none ${
-                active
-                  ? "border-panel-fg bg-panel-surface shadow-panel-md"
-                  : "border-panel-border bg-panel-surface hover:border-panel-border-strong"
-              }`}
-            >
-              <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl border ${tone.pill}`}>
-                <tone.Icon className="size-4.5" aria-hidden />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-panel-fg">{t.name}</span>
-                <span className="block text-xs tabular-nums text-panel-fg-secondary">
-                  Disk {pct(t.diskPct)}
-                  {t.openEvents ? ` · ${t.openEvents} açık uyarı` : ""}
-                </span>
-              </span>
+            <Link key={t.key} href={`/sunucular?s=${encodeURIComponent(t.key)}`} aria-current={active ? "page" : undefined} className={topTab(active)}>
+              <span className="text-[15px] font-semibold text-panel-fg">{t.name}</span>
+              <Status tone={t.health}>
+                {t.openEvents ? `${t.openEvents} açık uyarı` : t.diskPct != null ? `Disk ${pct(t.diskPct)}` : HEALTH_LABEL[t.health]}
+              </Status>
             </Link>
           );
         })}
       </nav>
 
       {notice ? (
-        <p role="status" className={`rounded-panel-md border px-4 py-2 text-sm ${TONE[notice.tone].pill}`}>
-          {notice.text}
+        <p role="status" className={`${FRAME} px-5 py-3`}>
+          <Status tone={notice.tone}>{notice.text}</Status>
         </p>
       ) : null}
 
-      {sel ? (
-        <>
+      {hosting ? (
+        <HostingTracker rows={hosting} />
+      ) : !sel ? (
+        <p className={`${FRAME} px-5 py-6 text-[13px] text-panel-fg-secondary`}>Dokploy&apos;dan sunucu bilgisi alınamadı.</p>
+      ) : project ? (
+        <ProjectDetail project={project} sites={sel.sites} serverName={sel.server.name} backHref={link(sel.server.key, { p: null })} />
+      ) : (
+        <section className={FRAME}>
+          {/* Başlık */}
+          <header className="flex flex-wrap items-start justify-between gap-4 px-5 py-5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{sel.server.name}</h2>
+                <Status tone={overall}>{HEALTH_LABEL[overall]}</Status>
+              </div>
+              <p className="mt-1 text-[13px] tabular-nums text-panel-fg-secondary">
+                {[
+                  sel.server.ip,
+                  m?.os,
+                  m?.cpuCores ? `${m.cpuCores} çekirdek` : null,
+                  m?.memTotalGb ? `${m.memTotalGb.toFixed(0)} GB RAM` : null,
+                  m?.diskTotalGb ? `${m.diskTotalGb.toFixed(0)} GB disk` : null,
+                  sel.server.dokployVersion ? `Dokploy ${sel.server.dokployVersion}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "Sunucu bilgisi alınamadı"}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={refreshNow} disabled={busy !== null || pending} className={BTN}>
+                <RefreshCw className={`size-4 ${busy === "refresh" ? "animate-spin" : ""}`} aria-hidden />
+                {busy === "refresh" ? "Ölçülüyor…" : "Şimdi yenile"}
+              </button>
+              <button type="button" onClick={() => setEditing((v) => !v)} aria-expanded={editing} className={BTN}>
+                Bilgileri düzenle
+              </button>
+              <a href={sel.server.dokployUrl} target="_blank" rel="noreferrer" className={BTN}>
+                Dokploy&apos;u aç
+                <ExternalLink className="size-3.5" aria-hidden />
+              </a>
+            </div>
+          </header>
+
+          {editing ? (
+            <MetaForm
+              serverKey={sel.server.key}
+              meta={sel.meta}
+              onClose={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                refresh();
+              }}
+            />
+          ) : null}
+
           {sel.instanceError ? (
-            <p className="rounded-panel-md border border-panel-critical-border bg-panel-critical-bg px-4 py-3 text-sm text-panel-critical">
+            <p role="alert" className="border-t border-panel-border bg-panel-critical-bg px-5 py-3 text-[13px] text-panel-critical">
               {sel.instanceError}
             </p>
           ) : null}
 
-          {project ? (
-            <ProjectDetail
-              project={project}
-              sites={sel.sites}
-              serverName={sel.server.name}
-              backHref={link(sel.server.key, { p: null })}
-            />
-          ) : (
-            <>
-          {/* Özet */}
-          <section className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 shadow-panel">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{sel.server.name}</h2>
-                  <Pill tone={overall}>{overallLabel}</Pill>
-                </div>
-                <p className="mt-1 text-sm text-panel-fg-secondary">
-                  {[sel.server.ip, m?.os, m?.kernel, m?.cpuCores ? `${m.cpuCores} çekirdek` : null, m?.memTotalGb ? `${m.memTotalGb.toFixed(0)} GB RAM` : null, m?.diskTotalGb ? `${m.diskTotalGb.toFixed(0)} GB disk` : null]
-                    .filter(Boolean)
-                    .join(" · ") || "Sunucu bilgisi alınamadı"}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={refreshNow} disabled={busy !== null || pending} className={btnSecondary}>
-                  <RefreshCw className={`size-4 ${busy === "refresh" ? "animate-spin" : ""}`} aria-hidden />
-                  {busy === "refresh" ? "Ölçülüyor…" : "Şimdi yenile"}
-                </button>
-                <button type="button" onClick={() => setEditing((v) => !v)} className={btnGhost}>
-                  <Pencil className="size-4" aria-hidden />
-                  Bilgileri düzenle
-                </button>
-                <a href={sel.server.dokployUrl} target="_blank" rel="noreferrer" className={btnGhost}>
-                  <ExternalLink className="size-4" aria-hidden />
-                  Dokploy
-                </a>
-              </div>
-            </div>
-            <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
-              <Fact
-                label="Açılış tarihi"
-                value={fmtDate(opened)}
-                hint={opened ? (sel.meta.purchasedAt ? "satın alma" : "Dokploy'a eklenme") : "düzenleyerek gir"}
-              />
-              <Fact label="Yaş" value={age(opened)} hint={sel.meta.provider ?? undefined} />
-              <Fact label="Kesintisiz çalışma" value={duration(m?.uptimeSec)} hint="son yeniden başlatmadan beri" />
-              <Fact
-                label={`Erişilebilirlik · ${RANGES[sel.range].label}`}
-                value={pct(sel.uptimePct, 2)}
-                hint={sel.sampleCount ? `${sel.sampleCount} ölçüm` : "ölçüm yok"}
-              />
-              <Fact
-                label="Aylık ücret"
-                value={sel.meta.monthlyCost != null ? `${sel.meta.monthlyCost.toLocaleString("tr-TR")} ${sel.meta.currency}` : "—"}
-                hint={sel.meta.note ?? undefined}
-              />
-              <Fact label="Sonraki ödeme" value={fmtDate(sel.meta.nextRenewal)} hint={sel.server.dokployVersion ? `Dokploy ${sel.server.dokployVersion}` : undefined} />
-            </dl>
-            {editing ? (
-              <MetaForm
-                serverKey={sel.server.key}
-                meta={sel.meta}
-                onClose={() => setEditing(false)}
-                onSaved={() => {
-                  setEditing(false);
-                  refresh();
-                }}
-              />
-            ) : null}
-          </section>
-
-          {/* Anlık göstergeler */}
+          {/* Göstergeler */}
           {sel.live?.source == null && !sel.instanceError ? (
-            <section className="rounded-panel-lg border border-panel-warn-border bg-panel-warn-bg p-5 text-sm text-panel-warn">
-              <h3 className="font-semibold">Bu sunucuda kaynak ölçümü kapalı</h3>
-              <p className="mt-1">
-                CPU, RAM ve disk bu sunucudan okunamıyor: Dokploy&apos;un Monitoring ajanı kapalı ve panel bu sunucuda
-                çalışmıyor. Projeler, site ve SSL kontrolleri ile Docker temizliği bundan etkilenmez.
-              </p>
-            </section>
+            <p className="border-t border-panel-border bg-panel-warn-bg px-5 py-3 text-[13px] text-panel-warn">
+              CPU, RAM ve disk henüz okunamadı. Bir iki dakika sonra &quot;Şimdi yenile&quot;ye bas; yine gelmezse Dokploy bu sunucu
+              için ölçüm vermiyor demektir. Projeler, site kontrolleri ve Docker temizliği bundan etkilenmez.
+            </p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Meter icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#2563eb1a", color: "#2563eb" }}><Cpu className="size-4" aria-hidden /></span>} label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel ?? undefined} />
+            <div className="grid border-t border-panel-border sm:grid-cols-3 sm:divide-x sm:divide-panel-border">
+              <Meter label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel} />
               <Meter
-                icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#7c3aed1a", color: "#7c3aed" }}><MemoryStick className="size-4" aria-hidden /></span>} 
                 label="RAM"
                 value={m?.memPct}
                 tone={loadTone(m?.memPct, 85, 95)}
-                sub={m?.memPct != null && m.memTotalGb ? `${((m.memPct / 100) * m.memTotalGb).toFixed(1)} / ${m.memTotalGb.toFixed(1)} GB` : undefined}
+                sub={m?.memPct != null && m.memTotalGb ? `${((m.memPct / 100) * m.memTotalGb).toFixed(1)} / ${m.memTotalGb.toFixed(1)} GB` : null}
               />
               <Meter
-                icon={<span className="flex size-7 items-center justify-center rounded-lg" style={{ background: "#c2410c1a", color: "#c2410c" }}><HardDrive className="size-4" aria-hidden /></span>} 
                 label="Disk"
                 value={m?.diskPct}
                 tone={loadTone(m?.diskPct, DISK_WARN_PCT, DISK_CRITICAL_PCT)}
                 sub={
                   <>
-                    {m?.diskPct != null && m.diskTotalGb
-                      ? `${((m.diskPct / 100) * m.diskTotalGb).toFixed(0)} / ${m.diskTotalGb.toFixed(0)} GB`
-                      : null}
+                    {m?.diskPct != null && m.diskTotalGb ? `${((m.diskPct / 100) * m.diskTotalGb).toFixed(0)} / ${m.diskTotalGb.toFixed(0)} GB` : null}
                     {sel.diskFullInDays != null ? (
-                      <span className="font-semibold text-panel-warn"> · bu hızla ~{sel.diskFullInDays} günde dolar</span>
+                      <span className="font-semibold text-panel-warn">, bu hızla {sel.diskFullInDays} günde dolar</span>
                     ) : null}
                   </>
                 }
               />
             </div>
           )}
-          {sel.live?.source === "local" ? (
-            <p className="text-xs text-panel-fg-secondary">
-              Panel bu sunucuda çalışıyor; ölçüm Dokploy ajanı olmadan doğrudan alınıyor (ağ trafiği hariç).
-            </p>
-          ) : null}
           {sel.live && !sel.live.up ? (
-            <p className="rounded-panel-md border border-panel-critical-border bg-panel-critical-bg px-4 py-3 text-sm text-panel-critical">
+            <p role="alert" className="border-t border-panel-border bg-panel-critical-bg px-5 py-3 text-[13px] text-panel-critical">
               Son ölçüm alınamadı: {sel.live.error ?? "bilinmeyen hata"}
             </p>
           ) : null}
 
+          {/* Bilgi satırı */}
+          <dl className="grid grid-cols-2 border-t border-panel-border sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-panel-border">
+            <Fact
+              label="Açılış tarihi"
+              value={fmtDate(opened)}
+              hint={opened ? `${age(opened)} önce${sel.meta.provider ? `, ${sel.meta.provider}` : ""}` : "Bilgileri düzenle ile gir"}
+            />
+            <Fact label="Kesintisiz çalışma" value={duration(m?.uptimeSec)} />
+            <Fact
+              label={`Erişilebilirlik, ${RANGES[sel.range].label}`}
+              value={pct(sel.uptimePct, 2)}
+              hint={sel.sampleCount ? `${sel.sampleCount} ölçüm` : "henüz ölçüm yok"}
+            />
+            <Fact
+              label="Aylık ücret"
+              value={sel.meta.monthlyCost != null ? `${sel.meta.monthlyCost.toLocaleString("tr-TR")} ${sel.meta.currency}` : "—"}
+              hint={sel.meta.note}
+            />
+            <Fact label="Sonraki ödeme" value={fmtDate(sel.meta.nextRenewal)} />
+          </dl>
+
           {/* Bölüm sekmeleri */}
-          <nav className="flex flex-wrap gap-2 border-b border-panel-border pb-3" aria-label="Bölümler">
+          <nav className="flex gap-1 overflow-x-auto border-t border-panel-border-strong bg-panel-surface-muted px-3" aria-label="Bölümler">
             {VIEWS.map((v) => {
               const active = v.key === view;
-              const count =
-                v.key === "projeler" ? sel.projects.length : v.key === "olaylar" ? sel.events.filter((e) => !e.resolvedAt).length : 0;
+              const count = v.key === "projeler" ? sel.projects.length : v.key === "olaylar" ? openEvents : 0;
               return (
-                <Link
+                <SoftLink
                   key={v.key}
                   href={link(sel.server.key, { v: v.key })}
-                  scroll={false}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex min-h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold transition ${
-                    active ? "bg-[#141111] text-white" : "text-panel-fg-secondary hover:bg-panel-surface-muted hover:text-panel-fg"
+                  className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-[13px] font-semibold transition-colors ${
+                    active ? "border-[#141111] text-panel-fg" : "border-transparent text-panel-fg-secondary hover:text-panel-fg"
                   }`}
                 >
-                  <v.Icon className="size-4" aria-hidden style={{ color: active ? undefined : v.color }} />
                   {v.label}
                   {count ? (
-                    <span
-                      className={`rounded-full px-1.5 text-[11px] tabular-nums ${
-                        active ? "bg-white/20" : v.key === "olaylar" ? "bg-panel-critical-bg text-panel-critical" : "bg-panel-surface-muted"
-                      }`}
-                    >
-                      {count}
-                    </span>
+                    <span className={`tabular-nums ${v.key === "olaylar" ? "text-panel-critical" : "font-normal text-panel-fg-secondary"}`}>{count}</span>
                   ) : null}
-                </Link>
+                </SoftLink>
               );
             })}
           </nav>
 
           {view === "projeler" ? (
             sel.projects.length === 0 ? (
-              <p className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 text-sm text-panel-fg-secondary shadow-panel">
-                Bu sunucuda Dokploy projesi bulunamadı.
-              </p>
+              <p className="border-t border-panel-border px-5 py-8 text-[13px] text-panel-fg-secondary">Bu sunucuda Dokploy projesi bulunamadı.</p>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {sel.projects.map((p) => (
-                  <ProjectTile key={p.id} project={p} sites={sel.sites} href={link(sel.server.key, { p: p.id })} />
-                ))}
+              <div className="overflow-hidden border-t border-panel-border">
+                <div className="-mb-px -mr-px grid sm:grid-cols-2 xl:grid-cols-3">
+                  {sel.projects.map((p) => (
+                    <ProjectCell key={p.id} project={p} sites={sel.sites} href={link(sel.server.key, { p: p.id })} />
+                  ))}
+                </div>
               </div>
             )
           ) : null}
 
           {view === "grafikler" ? (
-                    <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-panel-fg">Geçmiş</h2>
-              <div className="flex gap-2" role="group" aria-label="Zaman aralığı">
-                {(Object.keys(RANGES) as RangeKey[]).map((r) => (
-                  <Link key={r} href={link(sel.server.key, { range: r })} scroll={false} className={chipClass(r === sel.range)}>
-                    {RANGES[r].label}
-                  </Link>
-                ))}
+            <div className="border-t border-panel-border">
+              <div className="flex items-center justify-between gap-3 border-b border-panel-border px-5 py-3">
+                <h3 className="text-[15px] font-semibold text-panel-fg">Geçmiş</h3>
+                <div className="flex overflow-hidden rounded-md border border-panel-border-strong" role="group" aria-label="Zaman aralığı">
+                  {(Object.keys(RANGES) as RangeKey[]).map((r) => (
+                    <Link
+                      key={r}
+                      href={link(sel.server.key, { range: r })}
+                      scroll={false}
+                      aria-current={r === sel.range ? "true" : undefined}
+                      className={`border-l border-panel-border-strong px-3 py-1.5 text-[13px] font-semibold first:border-l-0 ${
+                        r === sel.range ? "bg-[#141111] text-white" : "text-panel-fg-secondary hover:text-panel-fg"
+                      }`}
+                    >
+                      {RANGES[r].label}
+                    </Link>
+                  ))}
+                </div>
               </div>
+              <ServerCharts data={sel.series} range={sel.range} diskWarnPct={DISK_WARN_PCT} />
             </div>
-            <ServerCharts data={sel.series} range={sel.range} diskWarnPct={DISK_WARN_PCT} />
-          </div>
-
-          
           ) : null}
 
           {view === "temizlik" ? (
-                    <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
-            <header className="flex flex-wrap items-start justify-between gap-3 border-b border-panel-border px-6 py-5">
-              <div className="max-w-2xl">
-                <h2 className="text-base font-semibold text-panel-fg">Docker temizliği</h2>
-                <p className="mt-1 text-sm text-panel-fg-secondary">
+            <div className="border-t border-panel-border">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-panel-border px-5 py-3">
+                <p className="max-w-2xl text-[13px] text-panel-fg-secondary">
                   Disk dolduğunda yer açar. İşlem sunucuda Dokploy üzerinden çalışır, birkaç dakika sürebilir ve işlem kaydına yazılır.
                 </p>
+                {sel.server.dockerCleanup != null ? (
+                  <label className="flex items-center gap-2 text-[13px] font-medium text-panel-fg">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[#141111]"
+                      checked={sel.server.dockerCleanup}
+                      disabled={busy !== null}
+                      onChange={(e) => toggleAuto(e.target.checked)}
+                    />
+                    Her gün otomatik temizle
+                  </label>
+                ) : null}
               </div>
-              {sel.server.dockerCleanup != null ? (
-                <label className="flex items-center gap-2 text-sm text-panel-fg">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-[#141111]"
-                    checked={sel.server.dockerCleanup}
-                    disabled={busy !== null}
-                    onChange={(e) => toggleAuto(e.target.checked)}
-                  />
-                  Günlük otomatik temizlik
-                </label>
-              ) : null}
-            </header>
-            {sel.dockerDisk ? <DockerDisk items={sel.dockerDisk} /> : null}
-            <ul className="grid gap-px bg-panel-border sm:grid-cols-2 lg:grid-cols-3">
-              {(Object.keys(CLEANUP_ACTIONS) as CleanupAction[]).map((a) => {
-                const spec = CLEANUP_ACTIONS[a];
-                const running = busy === `cleanup:${a}`;
-                return (
-                  <li key={a} className="flex flex-col gap-3 bg-panel-surface p-5">
-                    <div>
-                      <h3 className={`text-sm font-semibold ${spec.danger ? "text-panel-critical" : "text-panel-fg"}`}>{spec.label}</h3>
-                      <p className="mt-1 text-xs leading-5 text-panel-fg-secondary">{spec.hint}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => cleanup(a)}
-                      disabled={busy !== null || Boolean(sel.instanceError)}
-                      className={`${spec.danger ? btnGhost : btnSecondary} mt-auto self-start ${spec.danger ? "text-panel-critical" : ""}`}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                      {running ? "Temizleniyor…" : "Temizle"}
-                    </button>
-                  </li>
-                );
-              })}
-              {/* 5 kart: ızgaranın boş kalan hücresi kenarlık rengiyle dolmasın. */}
-              <li aria-hidden className="hidden bg-panel-surface sm:block" />
-            </ul>
-          </section>
-
-          
-          ) : null}
-
-          {view === "olaylar" ? (
-                    <section className="rounded-panel-lg border border-panel-border bg-panel-surface shadow-panel">
-            <header className="border-b border-panel-border px-6 py-5">
-              <h2 className="text-base font-semibold text-panel-fg">Olaylar</h2>
-              <p className="mt-1 text-sm text-panel-fg-secondary">
-                Kesintiler, disk ve SSL uyarıları, başarısız deploylar ve temizlikler. Uyarılar adminlere WhatsApp ile de gider.
-              </p>
-            </header>
-            {sel.events.length === 0 ? (
-              <p className="px-6 py-6 text-sm text-panel-fg-secondary">Henüz kayıtlı olay yok.</p>
-            ) : (
+              {sel.server.serverId || data.mock ? null : <DockerDiskLoader serverKey={sel.server.key} version={diskVersion} />}
               <ul className="divide-y divide-panel-border">
-                {sel.events.map((e) => {
-                  const open = !e.resolvedAt;
+                {(Object.keys(CLEANUP_ACTIONS) as CleanupAction[]).map((a) => {
+                  const spec = CLEANUP_ACTIONS[a];
                   return (
-                    <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-6 py-3 text-sm">
-                      <Pill tone={open ? (EVENT_TONE[e.severity] ?? "unknown") : e.kind === "cleanup" ? "unknown" : "ok"}>
-                        {open ? "Açık" : e.kind === "cleanup" ? "İşlem" : "Çözüldü"}
-                      </Pill>
-                      <span className="font-medium text-panel-fg">{e.title}</span>
-                      {e.detail ? <span className="min-w-0 truncate text-panel-fg-secondary">{e.detail}</span> : null}
-                      <span className="ml-auto text-xs tabular-nums text-panel-fg-muted">
-                        {fmtDateTime(e.at)}
-                        {e.resolvedAt && e.kind !== "cleanup" ? ` → ${fmtDateTime(e.resolvedAt)}` : ""}
-                      </span>
+                    <li key={a} className="grid items-center gap-x-6 gap-y-2 px-5 py-3 sm:grid-cols-[12rem_minmax(0,1fr)_auto]">
+                      <h3 className={`text-[15px] font-semibold ${spec.danger ? "text-panel-critical" : "text-panel-fg"}`}>{spec.label}</h3>
+                      <p className="text-[13px] leading-5 text-panel-fg-secondary">{spec.hint}</p>
+                      <button
+                        type="button"
+                        onClick={() => cleanup(a)}
+                        disabled={busy !== null || Boolean(sel.instanceError)}
+                        className={`${BTN} ${spec.danger ? "text-panel-critical hover:border-panel-critical" : ""}`}
+                      >
+                        {busy === `cleanup:${a}` ? "Temizleniyor…" : "Temizle"}
+                      </button>
                     </li>
                   );
                 })}
               </ul>
-            )}
-          </section>
+            </div>
           ) : null}
-            </>
-          )}
-        </>
-      ) : (
-        <p className="rounded-panel-lg border border-panel-border bg-panel-surface p-6 text-sm text-panel-fg-secondary shadow-panel">
-          Dokploy&apos;dan sunucu bilgisi alınamadı.
-        </p>
+
+          {view === "olaylar" ? (
+            sel.events.length === 0 ? (
+              <p className="border-t border-panel-border px-5 py-8 text-[13px] text-panel-fg-secondary">
+                Henüz kayıtlı olay yok. Kesinti, disk, SSL, deploy ve hosting uyarıları burada listelenir ve adminlere WhatsApp ile gider.
+              </p>
+            ) : (
+              <table className="w-full border-t border-panel-border text-[13px]">
+                <tbody className="divide-y divide-panel-border">
+                  {sel.events.map((e) => {
+                    const open = !e.resolvedAt;
+                    return (
+                      <tr key={e.id}>
+                        <td className="w-28 py-2.5 pl-5 pr-4 align-top">
+                          <Status tone={open ? (EVENT_TONE[e.severity] ?? "unknown") : e.kind === "cleanup" ? "unknown" : "ok"}>
+                            {open ? "Açık" : e.kind === "cleanup" ? "İşlem" : "Çözüldü"}
+                          </Status>
+                        </td>
+                        <td className="py-2.5 pr-4">
+                          <span className="font-semibold text-panel-fg">{e.title}</span>
+                          {e.detail ? <span className="block text-panel-fg-secondary">{e.detail}</span> : null}
+                        </td>
+                        <td className="w-44 py-2.5 pr-5 text-right align-top tabular-nums text-panel-fg-secondary">
+                          {fmtDateTime(e.at)}
+                          {e.resolvedAt && e.kind !== "cleanup" ? <span className="block">çözüldü {fmtDateTime(e.resolvedAt)}</span> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
+          ) : null}
+        </section>
       )}
     </div>
   );
