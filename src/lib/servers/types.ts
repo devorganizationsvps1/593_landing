@@ -41,6 +41,8 @@ export type ProjectInfo = {
   description: string | null;
   createdAt: string | null;
   services: ServiceInfo[];
+  /** Marka logosu (sayfa verisinde doldurulur). */
+  logo?: string | null;
 };
 
 export type ServerInfo = {

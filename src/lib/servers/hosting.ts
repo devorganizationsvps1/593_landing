@@ -6,12 +6,14 @@
  */
 import { prisma } from "@/lib/db";
 import { loadInventory } from "./dokploy";
+import { projectLogos } from "./logos";
 import type { Inventory, ProjectInfo } from "./types";
 
 export type HostingRow = {
   key: string;
   name: string;
   domain: string | null;
+  logo: string | null;
   serverName: string;
   /** Projenin Dokploy'da açıldığı gün. */
   openedAt: string | null;
@@ -84,6 +86,7 @@ export async function loadHosting(): Promise<HostingRow[]> {
     }
   }
 
+  const logos = await projectLogos(inv.projects).catch(() => new Map<string, string | null>());
   const rows: HostingRow[] = [];
   for (const { p, inst } of projects) {
     const a = existing.get(hostingKey(inst, p.id));
@@ -94,6 +97,7 @@ export async function loadHosting(): Promise<HostingRow[]> {
       key: a.key,
       name: p.name,
       domain: p.services.flatMap((s) => s.domains)[0]?.host ?? null,
+      logo: logos.get(p.id) ?? null,
       serverName: inv.servers.find((s) => s.key === serverKey)?.name ?? "",
       openedAt: p.createdAt,
       periodStart: period.start.toISOString().slice(0, 10),

@@ -88,3 +88,21 @@ export function brandInitials(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
+
+/**
+ * Gevşek eşleşme (sunucu yönetimi): Dokploy proje adı / domain gibi serbest
+ * metinlerden logo bulur — "zeynepozel", "suare_davet", "dreyupbaykara".
+ */
+export function matchBrandLogoLoose(texts: Array<string | null | undefined>): string | null {
+  const compact = (v: string) => normalizeKey(v).replace(/-/g, "");
+  const hay = texts.filter((t): t is string => Boolean(t)).map(compact).filter(Boolean);
+  const keys = Object.keys(LOGO_BY_SLUG)
+    .map((k) => ({ k: compact(k), logo: LOGO_BY_SLUG[k] }))
+    .sort((a, b) => b.k.length - a.k.length);
+  for (const h of hay) {
+    for (const { k, logo } of keys) {
+      if (h === k || (k.length >= 5 && h.includes(k))) return logo;
+    }
+  }
+  return null;
+}

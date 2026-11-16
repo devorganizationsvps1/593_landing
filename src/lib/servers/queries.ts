@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/db";
 import { dokployInstances, dokployMock } from "./config";
 import { loadInventory, localServerKey } from "./dokploy";
+import { projectLogos } from "./logos";
 import { lastLiveSample, nextRenewal, sampleServer, type LiveSample } from "./monitor";
 import { RANGES, type ProjectInfo, type RangeKey, type ServerInfo } from "./types";
 
@@ -248,9 +249,11 @@ export async function loadServerPage(opts: {
     };
   }
 
-  const projects = inv.projects
+  const onServer = inv.projects
     .map((p) => ({ ...p, services: p.services.filter((s) => s.serverKey === server.key) }))
     .filter((p) => p.services.length > 0);
+  const logos = await projectLogos(onServer).catch(() => new Map<string, string | null>());
+  const projects = onServer.map((p) => ({ ...p, logo: logos.get(p.id) ?? null }));
 
   const { metrics, ...pub } = server;
   return {

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 /**
  * Sunucu yönetimi ortak parçaları. Tasarım kuralı: içerik tek bir çerçevenin
  * içinde, ince çizgilerle bölünür — gölge, havada duran kart, renkli rozet yok.
@@ -8,7 +10,10 @@
 
 export type Tone = "ok" | "warn" | "critical" | "unknown";
 
-export const FRAME = "overflow-hidden rounded-[10px] border border-panel-border-strong bg-panel-surface";
+export const FRAME =
+  "overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]";
+/** İç kart: ince kenarlık, yumuşak köşe; üzerine gelince hafif yükselir. */
+export const CARD = "rounded-2xl border border-zinc-200 bg-white";
 export const RULE = "border-panel-border";
 
 export const TONE_DOT: Record<Tone, string> = {
@@ -83,12 +88,12 @@ export function colorMap(items: Array<{ id: string; createdAt: string | null }>)
 }
 
 const btn =
-  "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e91825] disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e91825] disabled:pointer-events-none disabled:opacity-50";
 export const BTN = `${btn} border border-panel-border-strong bg-panel-surface text-panel-fg hover:border-panel-fg`;
 export const BTN_SOLID = `${btn} bg-[#e91825] text-white hover:bg-[#c91420]`;
 export const BTN_QUIET = `${btn} text-panel-fg-secondary hover:bg-panel-surface-muted hover:text-panel-fg`;
 export const FIELD =
-  "h-9 w-full rounded-md border border-panel-border-strong bg-panel-surface px-3 text-[13px] text-panel-fg placeholder:text-panel-fg-muted focus:border-[#e91825] focus:outline-none";
+  "h-9 w-full rounded-lg border border-panel-border-strong bg-panel-surface px-3 text-[13px] text-panel-fg placeholder:text-panel-fg-muted focus:border-[#e91825] focus:outline-none";
 export const LABEL = "block text-[13px] font-medium text-panel-fg-secondary";
 
 const TZ = "Europe/Istanbul";
@@ -138,5 +143,54 @@ export function SoftLink({ href, children, ...rest }: React.AnchorHTMLAttributes
     >
       {children}
     </a>
+  );
+}
+
+/**
+ * Marka logosu: paneldeki logo → sitenin kendi favicon'u → renkli baş harf.
+ * Yüklenemeyen kaynak sıradakine düşer.
+ */
+export function Logo({
+  src,
+  host,
+  name,
+  color,
+  size = 44,
+}: {
+  src?: string | null;
+  host?: string | null;
+  name: string;
+  color: string;
+  size?: number;
+}) {
+  const sources = [src, host ? `https://${host}/favicon.ico` : null].filter((v): v is string => Boolean(v));
+  const [failed, setFailed] = useState(0);
+  const current = sources[failed];
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200 bg-white"
+      style={{ width: size, height: size }}
+    >
+      {current ? (
+        // eslint-disable-next-line @next/next/no-img-element -- dış favicon; next/image alan adı listesi gerektirir
+        <img
+          key={current}
+          src={current}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed((n) => n + 1)}
+          className={src && failed === 0 ? "size-full object-contain p-1" : "size-1/2 object-contain"}
+        />
+      ) : (
+        <span
+          className="flex size-full items-center justify-center font-semibold uppercase"
+          style={{ background: `${color}1f`, color, fontSize: size * 0.4 }}
+        >
+          {name.trim().charAt(0) || "?"}
+        </span>
+      )}
+    </span>
   );
 }

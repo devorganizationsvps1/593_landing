@@ -232,3 +232,25 @@ export function ServerCharts({
     </div>
   );
 }
+
+/** Gösterge kartının altındaki mini alan grafiği (0–100 ölçeğinde). */
+export function Spark({ data, dataKey, color, label }: { data: SeriesPoint[]; dataKey: "cpu" | "mem" | "disk"; color: string; label: string }) {
+  const id = `spark-${dataKey}`;
+  const series: Series[] = [{ key: dataKey, label, color }];
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="t" type="number" scale="time" domain={["dataMin", "dataMax"]} hide />
+        <YAxis domain={[0, 100]} hide />
+        <Tooltip cursor={{ stroke: color, strokeOpacity: 0.3 }} content={(p) => <TooltipBox {...p} series={series} unit="%" digits={1} />} />
+        <Area dataKey={dataKey} stroke={color} strokeWidth={2} fill={`url(#${id})`} isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}

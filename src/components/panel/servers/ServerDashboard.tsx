@@ -1,18 +1,20 @@
 "use client";
 
-import { ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { DISK_CRITICAL_PCT, DISK_WARN_PCT } from "@/lib/servers/config";
 import type { HostingRow } from "@/lib/servers/hosting";
-import type { ServerMeta, ServerPageData, SiteStatus } from "@/lib/servers/queries";
+import type { SeriesPoint, ServerMeta, ServerPageData, SiteStatus } from "@/lib/servers/queries";
 import { CLEANUP_ACTIONS, RANGES, type CleanupAction, type ProjectInfo, type RangeKey, type ServiceInfo } from "@/lib/servers/types";
 import HostingTracker from "./HostingTracker";
-import { ServerCharts } from "./ServerCharts";
+import { ServerCharts, Spark } from "./ServerCharts";
 import {
   BTN,
   BTN_QUIET,
+  CARD,
+  Logo,
   BTN_SOLID,
   FIELD,
   FRAME,
@@ -73,39 +75,50 @@ function projectHealth(project: ProjectInfo, sites: Record<string, SiteStatus>):
 
 /* ───────── parçalar ───────── */
 
-/** Gösterge: Durum panosundaki kartlar gibi dolu renkli blok. */
+/** Gösterge kartı: değer + son ölçümlerin alan grafiği. */
 function Meter({
   label,
   value,
   tone,
   sub,
   color,
+  data,
+  dataKey,
 }: {
   label: string;
   value: number | null | undefined;
   tone: Tone;
   sub?: React.ReactNode;
   color: string;
+  data: SeriesPoint[];
+  dataKey: "cpu" | "mem" | "disk";
 }) {
   const word = tone === "critical" ? "Kritik" : tone === "warn" ? "Yüksek" : null;
+  const hasChart = data.filter((p) => p[dataKey] != null).length >= 3;
   return (
-    <div className="rounded-xl px-4 py-4 text-white" style={{ background: color }}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[13px] font-semibold text-white/85">{label}</span>
-        {word ? <Status tone={tone} onColor>{word}</Status> : null}
+    <div className={`${CARD} overflow-hidden`}>
+      <div className="px-5 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2 text-[13px] font-medium text-zinc-500">
+            <span aria-hidden className="size-2.5 rounded-full" style={{ background: color }} />
+            {label}
+          </span>
+          {word ? <Status tone={tone}>{word}</Status> : null}
+        </div>
+        <p className="mt-2 text-[32px] font-semibold leading-none tabular-nums tracking-tight text-zinc-900">{pct(value, 1)}</p>
+        <p className="mt-1.5 min-h-[1.25rem] text-[13px] tabular-nums text-zinc-500">{sub}</p>
       </div>
-      <p className="mt-1 text-[30px] font-semibold leading-none tabular-nums tracking-tight">{pct(value, 1)}</p>
-      <div
-        className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/25"
-        role="meter"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={value ?? undefined}
-      >
-        <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
-      </div>
-      <p className="mt-2 min-h-[1.25rem] text-[13px] tabular-nums text-white/85">{sub}</p>
+      {hasChart ? (
+        <div className="mt-1 h-20">
+          <Spark data={data} dataKey={dataKey} color={color} label={label} />
+        </div>
+      ) : (
+        <div className="px-5 pb-5 pt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-zinc-100" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value ?? undefined}>
+            <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%`, background: color }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -147,7 +160,7 @@ function SiteLine({ host, site }: { host: string; site: SiteStatus | undefined }
   );
 }
 
-/** Proje kutusu — Durum panosundaki kartlar gibi dolu renkli; ayrıntı alt sayfada. */
+/** Proje kartı: logo, ad, domain, durum; ayrıntı alt sayfada. */
 function ProjectCell({
   project,
   sites,
@@ -161,19 +174,24 @@ function ProjectCell({
 }) {
   const health = projectHealth(project, sites);
   const host = project.services.flatMap((s) => s.domains)[0]?.host;
+  const site = host ? sites[host] : undefined;
   return (
     <SoftLink
       href={href}
-      className="flex min-h-[7.5rem] flex-col rounded-xl px-4 py-3.5 text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#141111]"
-      style={{ background: color }}
+      className={`${CARD} group flex flex-col gap-4 p-4 transition duration-200 hover:border-zinc-300 hover:shadow-[0_10px_30px_-14px_rgba(16,24,40,0.25)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e91825]`}
     >
-      <h3 className="truncate text-[15px] font-semibold">{project.name}</h3>
-      <p className="truncate text-[13px] text-white/85">{host ?? project.description ?? "Domain yok"}</p>
-      <div className="mt-auto flex items-end justify-between gap-3 pt-4 text-[13px]">
-        <Status tone={health.tone} onColor>
-          {health.label}
-        </Status>
-        <span className="shrink-0 tabular-nums text-white/85" title={fmtDate(project.createdAt)}>
+      <div className="flex items-center gap-3">
+        <Logo src={project.logo} host={host} name={project.name} color={color} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-semibold text-zinc-900">{project.name}</h3>
+          <p className="truncate text-[13px] text-zinc-500">{host ?? project.description ?? "Domain yok"}</p>
+        </div>
+        <ChevronRight className="size-4 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-500" aria-hidden />
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-3 text-[13px]">
+        <Status tone={health.tone}>{health.label}</Status>
+        <span className="shrink-0 tabular-nums text-zinc-500" title={fmtDate(project.createdAt)}>
+          {site?.ok && site.ms != null ? `${site.ms} ms, ` : ""}
           {project.services.length} servis, {age(project.createdAt)}
         </span>
       </div>
@@ -208,7 +226,13 @@ function ProjectDetail({
       </div>
       <header className="px-5 py-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span aria-hidden className="size-4 rounded" style={{ background: color }} />
+          <Logo
+            src={project.logo}
+            host={project.services.flatMap((s) => s.domains)[0]?.host}
+            name={project.name}
+            color={color}
+            size={48}
+          />
           <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{project.name}</h2>
           <Status tone={health.tone}>{health.label}</Status>
         </div>
@@ -540,7 +564,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
   const openEvents = sel?.events.filter((e) => !e.resolvedAt).length ?? 0;
   const dueCount = hosting?.filter((h) => !h.hidden && h.daysLeft <= 0).length ?? 0;
   const topTab = (active: boolean) =>
-    `flex min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-lg px-4 py-2.5 transition-colors sm:flex-none sm:min-w-44 ${
+    `flex min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-xl px-4 py-2.5 transition-colors sm:flex-none sm:min-w-44 ${
       active ? "bg-[#e91825] text-white" : "text-panel-fg hover:bg-[#e91825]/10"
     }`;
 
@@ -653,9 +677,11 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
               için ölçüm vermiyor demektir. Projeler, site kontrolleri ve Docker temizliği bundan etkilenmez.
             </p>
           ) : (
-            <div className="grid gap-3 border-t border-panel-border p-4 sm:grid-cols-3">
-              <Meter color="#0866FF" label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel} />
+            <div className="grid gap-4 border-t border-zinc-100 p-5 sm:grid-cols-3">
+              <Meter data={sel.series} dataKey="cpu" color="#0866FF" label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel} />
               <Meter
+                data={sel.series}
+                dataKey="mem"
                 color="#7C3AED"
                 label="RAM"
                 value={m?.memPct}
@@ -663,6 +689,8 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                 sub={m?.memPct != null && m.memTotalGb ? `${((m.memPct / 100) * m.memTotalGb).toFixed(1)} / ${m.memTotalGb.toFixed(1)} GB` : null}
               />
               <Meter
+                data={sel.series}
+                dataKey="disk"
                 color="#0F766E"
                 label="Disk"
                 value={m?.diskPct}
@@ -671,7 +699,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                   <>
                     {m?.diskPct != null && m.diskTotalGb ? `${((m.diskPct / 100) * m.diskTotalGb).toFixed(0)} / ${m.diskTotalGb.toFixed(0)} GB` : null}
                     {sel.diskFullInDays != null ? (
-                      <span className="font-semibold text-white">, bu hızla {sel.diskFullInDays} günde dolar</span>
+                      <span className="font-semibold text-amber-600">, bu hızla {sel.diskFullInDays} günde dolar</span>
                     ) : null}
                   </>
                 }
@@ -738,8 +766,8 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
             sel.projects.length === 0 ? (
               <p className="border-t border-panel-border px-5 py-8 text-[13px] text-panel-fg-secondary">Bu sunucuda Dokploy projesi bulunamadı.</p>
             ) : (
-              <div className="border-t border-panel-border p-4">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="border-t border-zinc-100 p-5">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {sel.projects.map((p) => (
                     <ProjectCell
                       key={p.id}

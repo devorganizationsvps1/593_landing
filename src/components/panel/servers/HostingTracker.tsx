@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { HostingRow } from "@/lib/servers/hosting";
-import { BTN, BTN_QUIET, BTN_SOLID, FIELD, FRAME, LABEL, Status, colorMap, fmtDate, fmtDateShort, post, type Tone } from "./ui";
+import { BTN, BTN_QUIET, BTN_SOLID, FIELD, FRAME, LABEL, Logo, Status, colorMap, fmtDate, fmtDateShort, post, type Tone } from "./ui";
 
 /** 30 gün ve altı "yaklaşıyor" sayılır. */
 const SOON_DAYS = 30;
@@ -29,7 +29,7 @@ function YearBar({ row }: { row: HostingRow }) {
   const done = (row.elapsedDays / row.totalDays) * 12;
   return (
     <div
-      className="flex h-3 gap-[2px]"
+      className="flex h-2.5 gap-[3px]"
       role="meter"
       aria-label={`${row.name} hosting dönemi`}
       aria-valuemin={0}
@@ -38,7 +38,7 @@ function YearBar({ row }: { row: HostingRow }) {
       aria-valuetext={`${row.totalDays} günün ${row.elapsedDays} günü geçti`}
     >
       {Array.from({ length: 12 }, (_, i) => (
-        <span key={i} className="flex-1 overflow-hidden bg-[#e7e5e4] first:rounded-l-sm last:rounded-r-sm">
+        <span key={i} className="flex-1 overflow-hidden bg-zinc-100 first:rounded-l-full last:rounded-r-full">
           <span className="block h-full" style={{ width: `${Math.min(1, Math.max(0, done - i)) * 100}%`, background: fill }} />
         </span>
       ))}
@@ -202,12 +202,12 @@ export default function HostingTracker({ rows }: { rows: HostingRow[] }) {
             return (
               <li key={r.key} className={`border-t border-panel-border ${r.hidden ? "opacity-60" : ""}`}>
                 <div className="grid items-center gap-x-6 gap-y-3 px-5 py-4 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_11rem_auto]">
-                  <div className="min-w-0">
-                    <h3 className="flex items-center gap-2 text-[15px] font-semibold text-panel-fg">
-                      <span aria-hidden className="size-2.5 shrink-0 rounded-sm" style={{ background: colors.get(r.key) }} />
-                      <span className="truncate">{r.name}</span>
-                    </h3>
-                    <p className="truncate pl-[18px] text-[13px] text-panel-fg-secondary">{r.domain ?? r.serverName}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Logo src={r.logo} host={r.domain} name={r.name} color={colors.get(r.key) ?? "#0866FF"} size={40} />
+                    <div className="min-w-0">
+                      <h3 className="truncate text-[15px] font-semibold text-panel-fg">{r.name}</h3>
+                      <p className="truncate text-[13px] text-panel-fg-secondary">{r.domain ?? r.serverName}</p>
+                    </div>
                   </div>
 
                   <div className="min-w-0">
