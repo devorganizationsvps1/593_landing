@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { HostingRow } from "@/lib/servers/hosting";
-import { BTN, BTN_QUIET, BTN_SOLID, FIELD, FRAME, LABEL, Status, fmtDate, fmtDateShort, post, type Tone } from "./ui";
+import { BTN, BTN_QUIET, BTN_SOLID, FIELD, FRAME, LABEL, Status, colorMap, fmtDate, fmtDateShort, post, type Tone } from "./ui";
 
 /** 30 gün ve altı "yaklaşıyor" sayılır. */
 const SOON_DAYS = 30;
@@ -16,8 +16,8 @@ function stateOf(r: HostingRow): { tone: Tone; label: string; fill: string } {
       fill: "#e91825",
     };
   }
-  if (r.daysLeft <= SOON_DAYS) return { tone: "warn", label: `${r.daysLeft} gün kaldı`, fill: "#b45309" };
-  return { tone: "ok", label: `${r.daysLeft} gün kaldı`, fill: "#141111" };
+  if (r.daysLeft <= SOON_DAYS) return { tone: "warn", label: `${r.daysLeft} gün kaldı`, fill: "#d97706" };
+  return { tone: "ok", label: `${r.daysLeft} gün kaldı`, fill: "#2563eb" };
 }
 
 /**
@@ -72,7 +72,7 @@ function EditForm({ row, onDone }: { row: HostingRow; onDone: (saved: boolean) =
   }
 
   return (
-    <form onSubmit={save} className="grid gap-4 border-t border-panel-border bg-panel-surface-muted px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
+    <form onSubmit={save} className="grid gap-4 border-t border-panel-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
       <label className={LABEL}>
         Dönem bitiş tarihi
         <input
@@ -113,7 +113,7 @@ function EditForm({ row, onDone }: { row: HostingRow; onDone: (saved: boolean) =
       <label className="flex items-center gap-2 text-[13px] text-panel-fg sm:col-span-2">
         <input
           type="checkbox"
-          className="size-4 accent-[#141111]"
+          className="size-4 accent-[#e91825]"
           checked={form.hidden}
           onChange={(e) => setForm((f) => ({ ...f, hidden: e.target.checked }))}
         />
@@ -141,6 +141,7 @@ export default function HostingTracker({ rows }: { rows: HostingRow[] }) {
   const [showHidden, setShowHidden] = useState(false);
   const refresh = () => startTransition(() => router.refresh());
 
+  const colors = colorMap(rows.map((r) => ({ id: r.key, createdAt: r.openedAt })));
   const tracked = rows.filter((r) => !r.hidden);
   const hidden = rows.filter((r) => r.hidden);
   const due = tracked.filter((r) => r.daysLeft <= 0);
@@ -173,12 +174,12 @@ export default function HostingTracker({ rows }: { rows: HostingRow[] }) {
           </p>
         </div>
         <p className="text-[13px] text-panel-fg">
-          {due.length ? <span className="font-semibold text-panel-critical">{due.length} firmanın süresi doldu</span> : null}
-          {due.length && soon.length ? ", " : ""}
+          {due.length ? <Status tone="critical">{due.length} firmanın süresi doldu</Status> : null}
+          {due.length && soon.length ? " " : ""}
           {soon.length ? (
-            <span className="font-semibold text-panel-warn">
+            <Status tone="warn">
               {soon.length} firmanın {SOON_DAYS} günden az kaldı
-            </span>
+            </Status>
           ) : null}
           {!due.length && !soon.length ? "Yaklaşan yenileme yok" : ""}
         </p>
@@ -202,8 +203,11 @@ export default function HostingTracker({ rows }: { rows: HostingRow[] }) {
               <li key={r.key} className={`border-t border-panel-border ${r.hidden ? "opacity-60" : ""}`}>
                 <div className="grid items-center gap-x-6 gap-y-3 px-5 py-4 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_11rem_auto]">
                   <div className="min-w-0">
-                    <h3 className="truncate text-[15px] font-semibold text-panel-fg">{r.name}</h3>
-                    <p className="truncate text-[13px] text-panel-fg-secondary">{r.domain ?? r.serverName}</p>
+                    <h3 className="flex items-center gap-2 text-[15px] font-semibold text-panel-fg">
+                      <span aria-hidden className="size-2.5 shrink-0 rounded-sm" style={{ background: colors.get(r.key) }} />
+                      <span className="truncate">{r.name}</span>
+                    </h3>
+                    <p className="truncate pl-[18px] text-[13px] text-panel-fg-secondary">{r.domain ?? r.serverName}</p>
                   </div>
 
                   <div className="min-w-0">

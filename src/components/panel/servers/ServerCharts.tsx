@@ -119,7 +119,7 @@ function Frame({
       </div>
       <div className="h-52 w-full">
         {empty ? (
-          <div className="flex h-full items-center justify-center bg-panel-surface-muted px-4 text-center text-[13px] text-panel-fg-secondary">
+          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-panel-border-strong px-4 text-center text-[13px] text-panel-fg-secondary">
             Bu aralıkta henüz ölçüm yok. Ölçümler 5 dakikada bir kaydedilir.
           </div>
         ) : (

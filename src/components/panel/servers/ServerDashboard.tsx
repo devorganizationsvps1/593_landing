@@ -19,8 +19,8 @@ import {
   LABEL,
   SoftLink,
   Status,
-  TONE_DOT,
   age,
+  colorMap,
   fmtDate,
   fmtDateTime,
   pct,
@@ -73,30 +73,39 @@ function projectHealth(project: ProjectInfo, sites: Record<string, SiteStatus>):
 
 /* ───────── parçalar ───────── */
 
-/** Gösterge hücresi: büyük rakam, altında ince çubuk. */
-function Meter({ label, value, tone, sub }: { label: string; value: number | null | undefined; tone: Tone; sub?: React.ReactNode }) {
-  const word = tone === "critical" ? "kritik" : tone === "warn" ? "yüksek" : null;
+/** Gösterge: Durum panosundaki kartlar gibi dolu renkli blok. */
+function Meter({
+  label,
+  value,
+  tone,
+  sub,
+  color,
+}: {
+  label: string;
+  value: number | null | undefined;
+  tone: Tone;
+  sub?: React.ReactNode;
+  color: string;
+}) {
+  const word = tone === "critical" ? "Kritik" : tone === "warn" ? "Yüksek" : null;
   return (
-    <div className="px-5 py-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[13px] font-medium text-panel-fg-secondary">{label}</span>
-        {word ? <Status tone={tone}>{word}</Status> : null}
+    <div className="rounded-xl px-4 py-4 text-white" style={{ background: color }}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[13px] font-semibold text-white/85">{label}</span>
+        {word ? <Status tone={tone} onColor>{word}</Status> : null}
       </div>
-      <p className="mt-1 text-[28px] font-semibold leading-none tabular-nums tracking-tight text-panel-fg">{pct(value, 1)}</p>
+      <p className="mt-1 text-[30px] font-semibold leading-none tabular-nums tracking-tight">{pct(value, 1)}</p>
       <div
-        className="mt-3 h-1 bg-[#e7e5e4]"
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/25"
         role="meter"
         aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value ?? undefined}
       >
-        <div
-          className={`h-full ${tone === "ok" ? "bg-[#141111]" : TONE_DOT[tone]}`}
-          style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }}
-        />
+        <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(0, value ?? 0))}%` }} />
       </div>
-      <p className="mt-2 min-h-[1.25rem] text-[13px] tabular-nums text-panel-fg-secondary">{sub}</p>
+      <p className="mt-2 min-h-[1.25rem] text-[13px] tabular-nums text-white/85">{sub}</p>
     </div>
   );
 }
@@ -138,21 +147,33 @@ function SiteLine({ host, site }: { host: string; site: SiteStatus | undefined }
   );
 }
 
-/** Proje kutusu — ızgarada komşularıyla çizgi paylaşır; ayrıntı alt sayfada. */
-function ProjectCell({ project, sites, href }: { project: ProjectInfo; sites: Record<string, SiteStatus>; href: string }) {
+/** Proje kutusu — Durum panosundaki kartlar gibi dolu renkli; ayrıntı alt sayfada. */
+function ProjectCell({
+  project,
+  sites,
+  href,
+  color,
+}: {
+  project: ProjectInfo;
+  sites: Record<string, SiteStatus>;
+  href: string;
+  color: string;
+}) {
   const health = projectHealth(project, sites);
   const host = project.services.flatMap((s) => s.domains)[0]?.host;
   return (
     <SoftLink
       href={href}
-      className="relative flex min-h-[7.5rem] flex-col border-b border-r border-panel-border px-5 py-4 transition-colors hover:bg-panel-surface-muted focus-visible:bg-panel-surface-muted"
+      className="flex min-h-[7.5rem] flex-col rounded-xl px-4 py-3.5 text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#141111]"
+      style={{ background: color }}
     >
-      <span aria-hidden className={`absolute inset-y-0 left-0 w-[3px] ${TONE_DOT[health.tone]}`} />
-      <h3 className="truncate text-[15px] font-semibold text-panel-fg">{project.name}</h3>
-      <p className="truncate text-[13px] text-panel-fg-secondary">{host ?? project.description ?? "Domain yok"}</p>
+      <h3 className="truncate text-[15px] font-semibold">{project.name}</h3>
+      <p className="truncate text-[13px] text-white/85">{host ?? project.description ?? "Domain yok"}</p>
       <div className="mt-auto flex items-end justify-between gap-3 pt-4 text-[13px]">
-        <Status tone={health.tone}>{health.label}</Status>
-        <span className="shrink-0 tabular-nums text-panel-fg-secondary" title={fmtDate(project.createdAt)}>
+        <Status tone={health.tone} onColor>
+          {health.label}
+        </Status>
+        <span className="shrink-0 tabular-nums text-white/85" title={fmtDate(project.createdAt)}>
           {project.services.length} servis, {age(project.createdAt)}
         </span>
       </div>
@@ -166,7 +187,9 @@ function ProjectDetail({
   sites,
   serverName,
   backHref,
+  color,
 }: {
+  color: string;
   project: ProjectInfo;
   sites: Record<string, SiteStatus>;
   serverName: string;
@@ -185,6 +208,7 @@ function ProjectDetail({
       </div>
       <header className="px-5 py-5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span aria-hidden className="size-4 rounded" style={{ background: color }} />
           <h2 className="text-xl font-semibold tracking-tight text-panel-fg">{project.name}</h2>
           <Status tone={health.tone}>{health.label}</Status>
         </div>
@@ -201,13 +225,16 @@ function ProjectDetail({
         const st = SERVICE_STATUS[s.status ?? ""] ?? { tone: "unknown" as Tone, label: s.status ?? "Bilinmiyor" };
         return (
           <article key={`${s.kind}:${s.id}`} className="border-t border-panel-border-strong">
-            <div className="grid items-baseline gap-x-6 gap-y-1 bg-panel-surface-muted px-5 py-3 sm:grid-cols-[minmax(0,1fr)_10rem_12rem]">
+            <div className="grid items-center gap-x-6 gap-y-1 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_10rem_12rem]">
               <h3 className="truncate text-[15px] font-semibold text-panel-fg">
                 {s.name}
-                <span className="ml-2 text-[13px] font-normal text-panel-fg-secondary">
+                <span
+                  className="ml-2 inline-block rounded-full px-2 py-0.5 align-middle text-[12px] font-semibold text-white"
+                  style={{ background: s.kind === "application" ? "#2563eb" : s.kind === "compose" ? "#7c3aed" : "#16a34a" }}
+                >
                   {KIND_LABEL[s.kind]}
-                  {s.environment ? `, ${s.environment}` : ""}
                 </span>
+                {s.environment ? <span className="ml-2 text-[13px] font-normal text-panel-fg-secondary">{s.environment}</span> : null}
               </h3>
               <Status tone={st.tone}>{st.label}</Status>
               <span className="text-[13px] tabular-nums text-panel-fg-secondary sm:text-right">
@@ -279,7 +306,7 @@ function MetaForm({ serverKey, meta, onClose, onSaved }: { serverKey: string; me
   }
 
   return (
-    <form onSubmit={save} className="grid gap-4 border-t border-panel-border bg-panel-surface-muted px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
+    <form onSubmit={save} className="grid gap-4 border-t border-panel-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
       <label className={LABEL}>
         Satın alma tarihi
         <input type="date" value={form.purchasedAt} onChange={set("purchasedAt")} className={`${FIELD} mt-1`} />
@@ -322,6 +349,13 @@ function MetaForm({ serverKey, meta, onClose, onSaved }: { serverKey: string; me
 
 type DockerDiskItem = { type: string; sizeBytes: number; reclaimable: string | null; active: number | null; total: number | null };
 
+const DISK_TYPE_COLOR: Record<string, string> = {
+  Images: "#0866FF",
+  Containers: "#0F766E",
+  "Local Volumes": "#7C3AED",
+  "Build Cache": "#E37400",
+};
+
 const DISK_TYPE_LABEL: Record<string, string> = {
   Images: "İmajlar",
   Containers: "Container'lar",
@@ -348,7 +382,10 @@ function DockerDisk({ items }: { items: DockerDiskItem[] }) {
           <li key={i.type} className="grid grid-cols-[7rem_1fr] items-center gap-x-4 text-[13px] sm:grid-cols-[7rem_1fr_16rem]">
             <span className="text-panel-fg">{DISK_TYPE_LABEL[i.type] ?? i.type}</span>
             <span className="flex items-center gap-3">
-              <span className="h-2 bg-[#141111]" style={{ width: `${Math.max(0.5, (i.sizeBytes / max) * 100)}%` }} />
+              <span
+                className="h-2.5 rounded-full"
+                style={{ width: `${Math.max(0.5, (i.sizeBytes / max) * 100)}%`, background: DISK_TYPE_COLOR[i.type] ?? "#71717a" }}
+              />
               <span className="shrink-0 font-semibold tabular-nums text-panel-fg">{gb(i.sizeBytes)}</span>
             </span>
             <span className="col-span-2 text-panel-fg-secondary sm:col-span-1 sm:text-right">
@@ -429,6 +466,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
   const sel = data.selected;
   const view: ViewKey = VIEWS.some((v) => v.key === viewParam) ? (viewParam as ViewKey) : "projeler";
   const project = sel?.projects.find((p) => p.id === projectId) ?? null;
+  const colors = colorMap(sel?.projects ?? []);
   /** Sayfa içi bağlantı: verilmeyen parametreler mevcut değerini korur. */
   const link = (key: string, o: { range?: RangeKey; v?: ViewKey; p?: string | null } = {}) => {
     const q = new URLSearchParams({ s: key });
@@ -502,8 +540,8 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
   const openEvents = sel?.events.filter((e) => !e.resolvedAt).length ?? 0;
   const dueCount = hosting?.filter((h) => !h.hidden && h.daysLeft <= 0).length ?? 0;
   const topTab = (active: boolean) =>
-    `flex min-w-0 flex-1 flex-col justify-center border-b-2 px-5 py-3 transition-colors sm:flex-none sm:min-w-44 ${
-      active ? "border-[#141111] bg-panel-surface" : "border-transparent hover:bg-panel-surface"
+    `flex min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-lg px-4 py-2.5 transition-colors sm:flex-none sm:min-w-44 ${
+      active ? "bg-[#e91825] text-white" : "text-panel-fg hover:bg-[#e91825]/10"
     }`;
 
   return (
@@ -515,17 +553,19 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
       ) : null}
 
       {/* Üst sekmeler: hosting + sunucular */}
-      <nav className={`${FRAME} flex flex-wrap divide-x divide-panel-border bg-panel-surface-muted`} aria-label="Sunucu yönetimi">
+      <nav className={`${FRAME} flex flex-wrap gap-1 p-1.5`} aria-label="Sunucu yönetimi">
         <Link href="/sunucular?s=hosting" aria-current={hosting ? "page" : undefined} className={topTab(Boolean(hosting))}>
-          <span className="text-[15px] font-semibold text-panel-fg">Hosting takibi</span>
-          <span className="text-[13px] text-panel-fg-secondary">{hosting && dueCount ? `${dueCount} firmanın süresi doldu` : "Yıllık yenilemeler"}</span>
+          <span className="text-[15px] font-semibold">Hosting takibi</span>
+          <span className={`text-[13px] ${hosting ? "text-white/85" : "text-panel-fg-secondary"}`}>
+            {hosting && dueCount ? `${dueCount} firmanın süresi doldu` : "Yıllık yenilemeler"}
+          </span>
         </Link>
         {data.tabs.map((t) => {
           const active = !hosting && t.key === sel?.server.key;
           return (
             <Link key={t.key} href={`/sunucular?s=${encodeURIComponent(t.key)}`} aria-current={active ? "page" : undefined} className={topTab(active)}>
-              <span className="text-[15px] font-semibold text-panel-fg">{t.name}</span>
-              <Status tone={t.health}>
+              <span className="text-[15px] font-semibold">{t.name}</span>
+              <Status tone={t.health} onColor={active} className="self-start">
                 {t.openEvents ? `${t.openEvents} açık uyarı` : t.diskPct != null ? `Disk ${pct(t.diskPct)}` : HEALTH_LABEL[t.health]}
               </Status>
             </Link>
@@ -544,7 +584,13 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
       ) : !sel ? (
         <p className={`${FRAME} px-5 py-6 text-[13px] text-panel-fg-secondary`}>Dokploy&apos;dan sunucu bilgisi alınamadı.</p>
       ) : project ? (
-        <ProjectDetail project={project} sites={sel.sites} serverName={sel.server.name} backHref={link(sel.server.key, { p: null })} />
+        <ProjectDetail
+          project={project}
+          sites={sel.sites}
+          serverName={sel.server.name}
+          backHref={link(sel.server.key, { p: null })}
+          color={colors.get(project.id) ?? "#0866FF"}
+        />
       ) : (
         <section className={FRAME}>
           {/* Başlık */}
@@ -607,15 +653,17 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
               için ölçüm vermiyor demektir. Projeler, site kontrolleri ve Docker temizliği bundan etkilenmez.
             </p>
           ) : (
-            <div className="grid border-t border-panel-border sm:grid-cols-3 sm:divide-x sm:divide-panel-border">
-              <Meter label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel} />
+            <div className="grid gap-3 border-t border-panel-border p-4 sm:grid-cols-3">
+              <Meter color="#0866FF" label="CPU" value={m?.cpuPct} tone={loadTone(m?.cpuPct, 85, 95)} sub={m?.cpuModel} />
               <Meter
+                color="#7C3AED"
                 label="RAM"
                 value={m?.memPct}
                 tone={loadTone(m?.memPct, 85, 95)}
                 sub={m?.memPct != null && m.memTotalGb ? `${((m.memPct / 100) * m.memTotalGb).toFixed(1)} / ${m.memTotalGb.toFixed(1)} GB` : null}
               />
               <Meter
+                color="#0F766E"
                 label="Disk"
                 value={m?.diskPct}
                 tone={loadTone(m?.diskPct, DISK_WARN_PCT, DISK_CRITICAL_PCT)}
@@ -623,7 +671,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                   <>
                     {m?.diskPct != null && m.diskTotalGb ? `${((m.diskPct / 100) * m.diskTotalGb).toFixed(0)} / ${m.diskTotalGb.toFixed(0)} GB` : null}
                     {sel.diskFullInDays != null ? (
-                      <span className="font-semibold text-panel-warn">, bu hızla {sel.diskFullInDays} günde dolar</span>
+                      <span className="font-semibold text-white">, bu hızla {sel.diskFullInDays} günde dolar</span>
                     ) : null}
                   </>
                 }
@@ -658,7 +706,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
           </dl>
 
           {/* Bölüm sekmeleri */}
-          <nav className="flex gap-1 overflow-x-auto border-t border-panel-border-strong bg-panel-surface-muted px-3" aria-label="Bölümler">
+          <nav className="flex gap-1 overflow-x-auto border-t border-panel-border px-3" aria-label="Bölümler">
             {VIEWS.map((v) => {
               const active = v.key === view;
               const count = v.key === "projeler" ? sel.projects.length : v.key === "olaylar" ? openEvents : 0;
@@ -668,12 +716,18 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                   href={link(sel.server.key, { v: v.key })}
                   aria-current={active ? "page" : undefined}
                   className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-[13px] font-semibold transition-colors ${
-                    active ? "border-[#141111] text-panel-fg" : "border-transparent text-panel-fg-secondary hover:text-panel-fg"
+                    active ? "border-[#e91825] text-[#e91825]" : "border-transparent text-panel-fg-secondary hover:text-panel-fg"
                   }`}
                 >
                   {v.label}
                   {count ? (
-                    <span className={`tabular-nums ${v.key === "olaylar" ? "text-panel-critical" : "font-normal text-panel-fg-secondary"}`}>{count}</span>
+                    <span
+                      className={`rounded-full px-1.5 text-[12px] tabular-nums ${
+                        v.key === "olaylar" ? "bg-rose-600 text-white" : "bg-[#0866FF] text-white"
+                      }`}
+                    >
+                      {count}
+                    </span>
                   ) : null}
                 </SoftLink>
               );
@@ -684,10 +738,16 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
             sel.projects.length === 0 ? (
               <p className="border-t border-panel-border px-5 py-8 text-[13px] text-panel-fg-secondary">Bu sunucuda Dokploy projesi bulunamadı.</p>
             ) : (
-              <div className="overflow-hidden border-t border-panel-border">
-                <div className="-mb-px -mr-px grid sm:grid-cols-2 xl:grid-cols-3">
+              <div className="border-t border-panel-border p-4">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {sel.projects.map((p) => (
-                    <ProjectCell key={p.id} project={p} sites={sel.sites} href={link(sel.server.key, { p: p.id })} />
+                    <ProjectCell
+                      key={p.id}
+                      project={p}
+                      sites={sel.sites}
+                      href={link(sel.server.key, { p: p.id })}
+                      color={colors.get(p.id) ?? "#0866FF"}
+                    />
                   ))}
                 </div>
               </div>
@@ -706,7 +766,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                       scroll={false}
                       aria-current={r === sel.range ? "true" : undefined}
                       className={`border-l border-panel-border-strong px-3 py-1.5 text-[13px] font-semibold first:border-l-0 ${
-                        r === sel.range ? "bg-[#141111] text-white" : "text-panel-fg-secondary hover:text-panel-fg"
+                        r === sel.range ? "bg-[#e91825] text-white" : "text-panel-fg-secondary hover:text-panel-fg"
                       }`}
                     >
                       {RANGES[r].label}
@@ -728,7 +788,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
                   <label className="flex items-center gap-2 text-[13px] font-medium text-panel-fg">
                     <input
                       type="checkbox"
-                      className="size-4 accent-[#141111]"
+                      className="size-4 accent-[#e91825]"
                       checked={sel.server.dockerCleanup}
                       disabled={busy !== null}
                       onChange={(e) => toggleAuto(e.target.checked)}

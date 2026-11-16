@@ -12,9 +12,9 @@ export const FRAME = "overflow-hidden rounded-[10px] border border-panel-border-
 export const RULE = "border-panel-border";
 
 export const TONE_DOT: Record<Tone, string> = {
-  ok: "bg-panel-ok",
-  warn: "bg-panel-warn",
-  critical: "bg-panel-critical",
+  ok: "bg-[#16a34a]",
+  warn: "bg-amber-500",
+  critical: "bg-rose-600",
   unknown: "bg-panel-border-strong",
 };
 
@@ -25,8 +25,44 @@ export const TONE_TEXT: Record<Tone, string> = {
   unknown: "text-panel-fg-secondary",
 };
 
-/** Durum: renkli nokta + yazı. Sorun yoksa yazı nötr kalır. */
-export function Status({ tone, children, className = "" }: { tone: Tone; children: React.ReactNode; className?: string }) {
+/**
+ * Durum etiketi — Durum panosundaki dolu etiketlerle aynı dil: sorun kırmızı,
+ * uyarı sarı dolu; sorun yoksa yeşil nokta + yazı. `onColor` renkli zemin içindir.
+ */
+export function Status({
+  tone,
+  children,
+  className = "",
+  onColor = false,
+}: {
+  tone: Tone;
+  children: React.ReactNode;
+  className?: string;
+  onColor?: boolean;
+}) {
+  if (onColor) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
+          tone === "critical" || tone === "warn" ? "bg-white text-zinc-900" : "bg-white/20 text-white"
+        } ${className}`}
+      >
+        {tone === "critical" || tone === "warn" ? <span aria-hidden className={`size-2 rounded-full ${TONE_DOT[tone]}`} /> : null}
+        {children}
+      </span>
+    );
+  }
+  if (tone === "critical" || tone === "warn") {
+    return (
+      <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${
+          tone === "critical" ? "bg-rose-600 text-white" : "bg-amber-400 text-amber-950"
+        } ${className}`}
+      >
+        {children}
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex items-center gap-2 text-[13px] font-medium ${TONE_TEXT[tone]} ${className}`}>
       <span aria-hidden className={`size-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
@@ -35,13 +71,24 @@ export function Status({ tone, children, className = "" }: { tone: Tone; childre
   );
 }
 
+/** Durum panosunun ekip renkleri (lib/panel/teams.ts) — kimlik rengi olarak. */
+export const BOARD_COLORS = ["#0866FF", "#7C3AED", "#E1306C", "#E37400", "#34A853", "#0F766E"] as const;
+/**
+ * Renk ataması: en eski proje ilk rengi alır, sırayla döner. Böylece yan yana
+ * kutular farklı renkte olur ve yeni proje eklenince eskilerin rengi değişmez.
+ */
+export function colorMap(items: Array<{ id: string; createdAt: string | null }>): Map<string, string> {
+  const sorted = [...items].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id));
+  return new Map(sorted.map((it, i) => [it.id, BOARD_COLORS[i % BOARD_COLORS.length]]));
+}
+
 const btn =
   "inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-[13px] font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e91825] disabled:pointer-events-none disabled:opacity-50";
 export const BTN = `${btn} border border-panel-border-strong bg-panel-surface text-panel-fg hover:border-panel-fg`;
-export const BTN_SOLID = `${btn} bg-[#141111] text-white hover:bg-[#e91825]`;
+export const BTN_SOLID = `${btn} bg-[#e91825] text-white hover:bg-[#c91420]`;
 export const BTN_QUIET = `${btn} text-panel-fg-secondary hover:bg-panel-surface-muted hover:text-panel-fg`;
 export const FIELD =
-  "h-9 w-full rounded-md border border-panel-border-strong bg-panel-surface px-3 text-[13px] text-panel-fg placeholder:text-panel-fg-muted focus:border-panel-fg focus:outline-none";
+  "h-9 w-full rounded-md border border-panel-border-strong bg-panel-surface px-3 text-[13px] text-panel-fg placeholder:text-panel-fg-muted focus:border-[#e91825] focus:outline-none";
 export const LABEL = "block text-[13px] font-medium text-panel-fg-secondary";
 
 const TZ = "Europe/Istanbul";
