@@ -213,6 +213,26 @@ function draftPayload(d: Draft) {
   };
 }
 
+/** Kayıtlı içeriği geri yazmak için gövde (geri al). */
+function postPayload(p: SerializedPost) {
+  return {
+    tenantId: p.tenantId,
+    title: p.title,
+    platform: p.platform,
+    scheduledAt: p.scheduledAt,
+    status: p.status,
+    brief: p.brief,
+    caption: p.caption,
+    mediaUrls: p.mediaUrls,
+    assigneeId: p.assigneeId,
+    designerId: p.designerId,
+  };
+}
+
+type UndoEntry = { label: string; run: () => Promise<boolean> };
+const UNDO_LIMIT = 30;
+const UNDO_TOAST_MS = 7000;
+
 const INVALID_DATE_ERROR = "Geçerli bir paylaşım tarihi girin";
 const NETWORK_ERROR = "Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.";
 
@@ -548,6 +568,97 @@ export default function ContentCalendar({
   const designers = staff.filter((s) => s.teams.includes("grafik-tasarim"));
   const social = staff.filter((s) => s.teams.includes("sosyal-medya"));
 
+  /* ── geri al (⌘Z / Ctrl+Z) ── */
+  const undoStack = useRef<UndoEntry[]>([]);
+  // Silme geri alınınca içerik yeni kimlikle döner; eski kayıtlar onu bulsun.
+  const idAlias = useRef(new Map<string, string>());
+  const resolveId = (id: string) => {
+    let cur = id;
+    for (let i = 0; i < 50 && idAlias.current.has(cur); i++) cur = idAlias.current.get(cur)!;
+    return cur;
+  };
+  const [undoToast, setUndoToast] = useState<{ label: string; key: number; canUndo: boolean } | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const undoingRef = useRef(false);
+
+  function pushUndo(entry: UndoEntry) {
+    undoStack.current = [...undoStack.current.slice(-(UNDO_LIMIT - 1)), entry];
+    setUndoToast({ label: entry.label, key: Date.now(), canUndo: true });
+  }
+
+  useEffect(() => {
+    if (!undoToast) return;
+    const t = window.setTimeout(() => setUndoToast(null), UNDO_TOAST_MS);
+    return () => window.clearTimeout(t);
+  }, [undoToast]);
+
+  async function patchPost(id: string, body: Record<string, unknown>): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/panel/content-posts/${resolveId(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await res.json().catch(() => null)) as { post?: SerializedPost | null } | null;
+      if (!res.ok || !j?.post) return false;
+      const saved = j.post;
+      setPosts((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const runUndo = useCallback(async () => {
+    if (undoingRef.current) return;
+    const entry = undoStack.current.at(-1);
+    if (!entry) {
+      setUndoToast({ label: "Geri alınacak işlem yok", key: Date.now(), canUndo: false });
+      return;
+    }
+    undoingRef.current = true;
+    setUndoing(true);
+    setError(null);
+    try {
+      const ok = await entry.run();
+      if (ok) {
+        undoStack.current = undoStack.current.slice(0, -1);
+        setUndoToast({
+          label: `Geri alındı: ${entry.label}`,
+          key: Date.now(),
+          canUndo: undoStack.current.length > 0,
+        });
+        router.refresh();
+      } else {
+        setError("Geri alınamadı");
+      }
+    } finally {
+      undoingRef.current = false;
+      setUndoing(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    function onUndoKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key.toLowerCase() !== "z") return;
+      // Form açıkken veya yazı alanındayken tarayıcının metin geri alması çalışsın.
+      if (draft || dayOpen) return;
+      const el = document.activeElement;
+      if (
+        (el instanceof HTMLInputElement && el.type !== "checkbox") ||
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLElement && el.isContentEditable)
+      )
+        return;
+      e.preventDefault();
+      void runUndo();
+    }
+    window.addEventListener("keydown", onUndoKey);
+    return () => window.removeEventListener("keydown", onUndoKey);
+  }, [canEdit, draft, dayOpen, runUndo]);
+
   /* ── oluştur / kaydet / sil ── */
   function openNew(date: Date) {
     if (!canEdit) return;
@@ -585,11 +696,35 @@ export default function ContentCalendar({
         return;
       }
       const saved = j.post;
+      const before = draft.id ? posts.find((p) => p.id === draft.id) : undefined;
       setPosts((prev) =>
         prev.some((p) => p.id === saved.id)
           ? prev.map((p) => (p.id === saved.id ? saved : p))
           : [...prev, saved],
       );
+      if (!draft.id) {
+        pushUndo({
+          label: `“${saved.title || "İçerik"}” oluşturuldu`,
+          run: async () => {
+            const id = resolveId(saved.id);
+            try {
+              const res = await fetch(`/api/panel/content-posts/${id}`, { method: "DELETE" });
+              if (!res.ok) return false;
+            } catch {
+              return false;
+            }
+            setPosts((prev) => prev.filter((p) => p.id !== id));
+            return true;
+          },
+        });
+      } else if (before) {
+        const { tenantId: _t, ...prevBody } = postPayload(before);
+        void _t;
+        pushUndo({
+          label: `“${before.title || "İçerik"}” düzenlendi`,
+          run: () => patchPost(before.id, prevBody),
+        });
+      }
       setDraft(null);
       router.refresh();
     } catch {
@@ -644,7 +779,30 @@ export default function ContentCalendar({
       setError(NETWORK_ERROR);
       return;
     }
+    const removed = posts.find((p) => p.id === draft.id);
     setPosts((prev) => prev.filter((p) => p.id !== draft.id));
+    if (removed) {
+      pushUndo({
+        label: `“${removed.title || "İçerik"}” silindi`,
+        run: async () => {
+          try {
+            const res = await fetch("/api/panel/content-posts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(postPayload(removed)),
+            });
+            const j = (await res.json().catch(() => null)) as { post?: SerializedPost | null } | null;
+            if (!res.ok || !j?.post) return false;
+            const restored = j.post;
+            idAlias.current.set(removed.id, restored.id);
+            setPosts((prev) => [...prev, restored]);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+    }
     setDraft(null);
     router.refresh();
   }
@@ -676,6 +834,10 @@ export default function ContentCalendar({
       }
       const saved = j.post;
       setPosts((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+      pushUndo({
+        label: `“${post.title || "İçerik"}” taşındı`,
+        run: () => patchPost(postId, { scheduledAt: prevIso }),
+      });
     } catch {
       rollback(NETWORK_ERROR);
     }
@@ -1022,6 +1184,35 @@ export default function ContentCalendar({
           ) : null}
         </div>
       </div>
+
+      {undoToast && !draft ? (
+        <div
+          key={undoToast.key}
+          role="status"
+          className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm text-white shadow-lg"
+        >
+          <span className="max-w-[60vw] truncate">{undoToast.label}</span>
+          {undoToast.canUndo ? (
+            <button
+              type="button"
+              disabled={undoing}
+              onClick={() => void runUndo()}
+              className="shrink-0 font-semibold text-sky-300 hover:text-sky-200 disabled:opacity-50"
+            >
+              {undoing ? "Geri alınıyor…" : "Geri al"}
+              <span className="ml-1.5 text-xs font-normal text-zinc-400">⌘Z</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Kapat"
+            onClick={() => setUndoToast(null)}
+            className="shrink-0 text-zinc-400 hover:text-white"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      ) : null}
 
       {error && !draft ? (
         <div className="flex items-center gap-3 border-t border-rose-100 bg-rose-50 px-4 py-2 text-xs text-rose-700">
