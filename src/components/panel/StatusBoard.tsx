@@ -35,6 +35,7 @@ import {
   Link2,
   LayoutGrid,
   Rows3,
+  Search,
   Trash2,
   X,
 } from "lucide-react";
@@ -290,6 +291,12 @@ export default function StatusBoard({
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
     [filters, pathname, router],
+  );
+
+  const [titleQuery, setTitleQuery] = useState("");
+  const normalizedQuery = useMemo(
+    () => titleQuery.trim().toLocaleLowerCase("tr"),
+    [titleQuery],
   );
 
   const [board, setBoard] = useState(initialBoard);
@@ -889,11 +896,14 @@ export default function StatusBoard({
   const filteredColumns = useMemo(() => {
     return board.columns.map((col) => ({
       ...col,
-      cards: col.cards.filter((card) =>
-        cardMatchesFilters(card, filters, col.name),
+      cards: col.cards.filter(
+        (card) =>
+          cardMatchesFilters(card, filters, col.name) &&
+          (!normalizedQuery ||
+            card.title.toLocaleLowerCase("tr").includes(normalizedQuery)),
       ),
     }));
-  }, [board.columns, filters]);
+  }, [board.columns, filters, normalizedQuery]);
 
   const filteredCount = useMemo(
     () => filteredColumns.reduce((n, c) => n + c.cards.length, 0),
@@ -938,7 +948,8 @@ export default function StatusBoard({
     Boolean(filters.tenant) ||
     Boolean(filters.assignee) ||
     Boolean(filters.priority) ||
-    filters.overdue;
+    filters.overdue ||
+    Boolean(normalizedQuery);
 
   return (
     // Arka plandaki logonun (BoardBackdrop) üstünde kalsın. Boş alanlar tıklamayı
@@ -988,6 +999,33 @@ export default function StatusBoard({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+          <label className="relative flex h-8 w-full items-center sm:w-56">
+            <Search
+              className="pointer-events-none absolute left-2.5 size-3.5 text-zinc-400"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={titleQuery}
+              onChange={(e) => setTitleQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setTitleQuery("");
+              }}
+              placeholder="Görev başlığında ara"
+              aria-label="Görev başlığında ara"
+              className="h-8 w-full rounded-lg border border-zinc-200 bg-white pl-8 pr-7 text-xs text-zinc-800 outline-none transition placeholder:text-zinc-400 hover:border-zinc-300 focus:border-zinc-400 [&::-webkit-search-cancel-button]:hidden"
+            />
+            {titleQuery ? (
+              <button
+                type="button"
+                onClick={() => setTitleQuery("")}
+                aria-label="Aramayı temizle"
+                className="absolute right-1.5 rounded p-0.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </label>
           <FilterSelect
             label="Marka"
             value={filters.tenant}
@@ -1025,15 +1063,16 @@ export default function StatusBoard({
           {hasActiveFilters ? (
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
+                setTitleQuery("");
                 setFilters({
                   team: "",
                   tenant: "",
                   assignee: "",
                   priority: "",
                   overdue: false,
-                })
-              }
+                });
+              }}
               className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
             >
               <X className="size-3.5" aria-hidden />
