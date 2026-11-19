@@ -325,6 +325,16 @@ function PlannerForm({ plan }: { plan: BrandBudgetPlan }) {
               <p className="mt-1.5 text-xl font-semibold tabular-nums text-zinc-900">
                 {formatTry(summary.monthSpend, plan.currency)}
               </p>
+              <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-zinc-600">
+                <span className="inline-flex items-center gap-1">
+                  <span className="size-2 rounded-full bg-emerald-600" />
+                  Google {formatTry(summary.google.monthSpend, plan.currency)}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="size-2 rounded-full bg-blue-600" />
+                  Meta {formatTry(summary.meta.monthSpend, plan.currency)}
+                </span>
+              </p>
             </div>
             <div>
               <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-zinc-500">

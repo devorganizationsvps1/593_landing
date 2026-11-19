@@ -262,10 +262,20 @@ export default function BudgetYearTable({
       acc.google += r.google ?? 0;
       acc.meta += r.meta ?? 0;
       acc.actual += r.actual;
+      acc.googleActual += r.m.googleSpend;
+      acc.metaActual += r.m.metaSpend;
       if (r.m.phase !== "future") acc.plannedToDate += r.planned ?? 0;
       return acc;
     },
-    { planned: 0, google: 0, meta: 0, actual: 0, plannedToDate: 0 },
+    {
+      planned: 0,
+      google: 0,
+      meta: 0,
+      actual: 0,
+      googleActual: 0,
+      metaActual: 0,
+      plannedToDate: 0,
+    },
   );
 
   return (
@@ -336,18 +346,40 @@ export default function BudgetYearTable({
       <div className="overflow-x-auto rounded-lg border border-zinc-200">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-zinc-50 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-            <tr>
-              <th className="px-3 py-2">Ay</th>
-              <th className="border-l border-zinc-200 px-3 py-2 text-right text-[#e91825]">
-                Plan
+            <tr className="border-b border-zinc-200">
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Ay
               </th>
-              <th className="px-3 py-2 text-right">Google</th>
-              <th className="px-3 py-2 text-right">Meta</th>
-              <th className="border-l border-zinc-200 px-3 py-2 text-right">
+              <th
+                colSpan={3}
+                className="border-l border-zinc-200 px-3 pt-2 pb-1 text-center text-[#e91825]"
+              >
+                Planlanan
+              </th>
+              <th
+                colSpan={3}
+                className="border-l border-zinc-200 px-3 pt-2 pb-1 text-center"
+              >
                 Gerçekleşen
               </th>
-              <th className="px-3 py-2 text-right">Fark</th>
-              <th className="px-3 py-2">Durum</th>
+              <th rowSpan={2} className="px-3 py-2 text-right align-bottom">
+                Fark
+              </th>
+              <th rowSpan={2} className="px-3 py-2 align-bottom">
+                Durum
+              </th>
+            </tr>
+            <tr>
+              <th className="border-l border-zinc-200 px-3 py-1.5 text-right text-[#e91825]">
+                Toplam
+              </th>
+              <th className="px-3 py-1.5 text-right">Google</th>
+              <th className="px-3 py-1.5 text-right">Meta</th>
+              <th className="border-l border-zinc-200 px-3 py-1.5 text-right">
+                Toplam
+              </th>
+              <th className="px-3 py-1.5 text-right">Google</th>
+              <th className="px-3 py-1.5 text-right">Meta</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
@@ -464,6 +496,18 @@ export default function BudgetYearTable({
                       </>
                     )}
                   </td>
+                  <ChannelActualCell
+                    future={r.m.phase === "future"}
+                    actual={r.m.googleSpend}
+                    planned={r.google}
+                    money={money}
+                  />
+                  <ChannelActualCell
+                    future={r.m.phase === "future"}
+                    actual={r.m.metaSpend}
+                    planned={r.meta}
+                    money={money}
+                  />
                   <td
                     className={`px-3 py-2 text-right align-middle text-xs tabular-nums ${
                       diff == null
@@ -503,6 +547,12 @@ export default function BudgetYearTable({
               </td>
               <td className="border-l border-zinc-200 px-3 py-2 text-right">
                 {money(totals.actual)}
+              </td>
+              <td className="px-3 py-2 text-right">
+                {money(totals.googleActual)}
+              </td>
+              <td className="px-3 py-2 text-right">
+                {money(totals.metaActual)}
               </td>
               <td className="px-3 py-2 text-right text-xs font-medium text-zinc-600">
                 {totals.plannedToDate > 0
@@ -549,6 +599,41 @@ export default function BudgetYearTable({
       {error ? <p className="text-sm text-rose-600">{error}</p> : null}
       {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
     </section>
+  );
+}
+
+/** Kanal bazında gerçekleşen harcama; kanal planı varsa yüzdesi altta. */
+function ChannelActualCell({
+  future,
+  actual,
+  planned,
+  money,
+}: {
+  future: boolean;
+  actual: number;
+  planned: number | null;
+  money: (n: number) => string;
+}) {
+  if (future) {
+    return (
+      <td className="px-3 py-2 text-right align-middle text-zinc-400">—</td>
+    );
+  }
+  const pct =
+    planned != null && planned > 0
+      ? Math.round((actual / planned) * 100)
+      : null;
+  return (
+    <td className="px-3 py-2 text-right align-middle tabular-nums text-zinc-700">
+      {money(actual)}
+      {pct != null ? (
+        <span
+          className={`block text-[10px] ${pct > 100 ? "text-rose-600" : "text-zinc-400"}`}
+        >
+          %{pct}
+        </span>
+      ) : null}
+    </td>
   );
 }
 
