@@ -50,72 +50,61 @@ export default function HeaderTaskSummary() {
   return (
     <nav
       aria-label="Görev özeti"
-      className="hidden shrink-0 items-center gap-0.5 border-r border-panel-border pr-2 md:flex"
+      className="hidden shrink-0 items-stretch divide-x divide-panel-border overflow-hidden rounded-panel-btn border border-panel-border bg-panel-surface md:flex"
     >
       <Stat
         href={`/board?today=1${mine}`}
-        label="Bugün teslim"
+        label="bugün teslim"
         value={data.dueToday}
         title={`${who}, son tarihi bugün olan görevler`}
-        tone="amber"
       />
       <Stat
         href={`/board?review=1${mine}`}
-        label="Onay bekleyen"
+        label="onay bekliyor"
         value={data.review}
         title={`${who}, İncelemede kolonundaki görevler`}
-        tone="sky"
       />
       <Stat
         href={`/board?overdue=1${mine}`}
-        label="Geciken"
+        label="gecikti"
         value={data.overdue}
         title={`${who}, son tarihi geçmiş görevler`}
-        tone="rose"
+        alert
       />
     </nav>
   );
 }
-
-const DOTS = {
-  amber: "bg-amber-500",
-  sky: "bg-sky-500",
-  rose: "bg-rose-500",
-} as const;
 
 function Stat({
   href,
   label,
   value,
   title,
-  tone,
+  alert = false,
 }: {
   href: string;
   label: string;
   value: number;
   title: string;
-  tone: keyof typeof DOTS;
+  /** Sıfırdan büyükse sayı kırmızı (gecikenler). */
+  alert?: boolean;
 }) {
   const active = value > 0;
   return (
     <Link
       href={href}
       title={title}
-      className="group inline-flex items-center gap-2 whitespace-nowrap rounded-panel-btn px-2.5 py-1.5 transition hover:bg-panel-surface-muted"
+      className="group inline-flex items-baseline gap-1.5 whitespace-nowrap px-3 py-1.5 transition hover:bg-panel-surface-muted"
     >
       <span
-        className={`size-1.5 shrink-0 rounded-full ${active ? DOTS[tone] : "bg-panel-border"}`}
-        aria-hidden
-      />
-      <span className="text-[12px] text-panel-fg-secondary group-hover:text-panel-fg">
-        {label}
-      </span>
-      <span
         className={`text-[13px] font-semibold tabular-nums ${
-          active ? "text-panel-fg" : "text-panel-fg-muted"
+          !active ? "text-panel-fg-muted" : alert ? "text-rose-600" : "text-panel-fg"
         }`}
       >
         {value}
+      </span>
+      <span className="text-[12px] text-panel-fg-secondary group-hover:text-panel-fg">
+        {label}
       </span>
     </Link>
   );
