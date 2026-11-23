@@ -13,6 +13,7 @@ import {
 import { prisma } from "@/lib/db";
 import { isStaffRole } from "@/lib/panel/host";
 import { resolvePanelTenant } from "@/lib/panel/data";
+import { tenantHasCalendar } from "@/lib/panel/client-calendar";
 import { loginHref, sanitizeCallbackPath } from "@/lib/panel/auth-nav";
 
 const VIEW_ONLY_PATHS = ["/takvim", "/board"];
@@ -179,6 +180,8 @@ export default async function PanelLayout({
     );
   }
 
+  // Paylaşım takvimi olan markalarda menüye takvim bağlantısı gelir.
+  const hasCalendar = await tenantHasCalendar(tenant.id);
   const ecommerce = tenant.type === "ecommerce";
   const typeLabel = ecommerce ? "E-TİCARET" : "LEAD";
   const roleLabel =
@@ -189,7 +192,7 @@ export default async function PanelLayout({
       <Suspense fallback={null}>
         <PanelShell
           variant="tenant"
-          nav={tenantNavLinks(tenant.disabledIntegrations)}
+          nav={tenantNavLinks(tenant.disabledIntegrations, { calendar: hasCalendar })}
           brandName={tenant.name}
           brandTypeLabel={typeLabel}
           userEmail={session.user.email ?? ""}

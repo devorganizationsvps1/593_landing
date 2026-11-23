@@ -45,11 +45,20 @@ export function staffNavLinks(role: string | null | undefined): PanelNavLink[] {
   );
 }
 
-/** Markada kapatılan platformların sayfalarını menüden çıkarır. */
-export function tenantNavLinks(disabled: readonly string[]): PanelNavLink[] {
-  return TENANT_NAV_LINKS.filter(
+const TENANT_CALENDAR_LINK: PanelNavLink = { href: "/takvim", label: "Paylaşım takvimi" };
+
+/**
+ * Markada kapatılan platformların sayfalarını menüden çıkarır; paylaşım
+ * takvimi olan markalarda "Paylaşım takvimi" bağlantısını ekler.
+ */
+export function tenantNavLinks(
+  disabled: readonly string[],
+  opts: { calendar?: boolean } = {},
+): PanelNavLink[] {
+  const links = TENANT_NAV_LINKS.filter(
     (l) => !l.integration || !disabled.includes(l.integration),
   );
+  return opts.calendar ? [...links, TENANT_CALENDAR_LINK] : links;
 }
 
 /** `/panel` rewrite önekini atar — tarayıcı yolu karşılaştırması için. */
@@ -90,6 +99,7 @@ const TENANT_PAGE_TITLES: Record<string, string> = {
   "/gtm": "GTM",
   "/budget": "Bütçe",
   "/search-console": "Search Console",
+  "/takvim": "Paylaşım takvimi",
 };
 
 export function tenantPageTitle(rawPath: string, brandName: string): string {

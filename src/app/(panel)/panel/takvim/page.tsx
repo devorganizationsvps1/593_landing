@@ -1,8 +1,11 @@
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
+import ClientContentCalendar from "@/components/panel/ClientContentCalendar";
 import ContentCalendar from "@/components/panel/ContentCalendar";
 import { prisma } from "@/lib/db";
+import { istanbulDayKey, listClientCalendarPosts } from "@/lib/panel/client-calendar";
+import { resolvePanelTenant } from "@/lib/panel/data";
 import { listContentPosts } from "@/lib/panel/content-posts";
 import { isStaffRole } from "@/lib/panel/host";
 import { can } from "@/lib/panel/permissions";
@@ -15,7 +18,14 @@ function monthBounds(month: string): { from: Date; to: Date } {
   return { from, to };
 }
 
-/** Sosyal medya içerik takvimi — yalnızca ajans portalı. */
+function currentMonth(): string {
+  return istanbulDayKey(new Date()).slice(0, 7);
+}
+
+/**
+ * Sosyal medya içerik takvimi. Ajans portalında tüm markalar (düzenlenebilir),
+ * marka panelinde yalnızca o markanın içerikleri (salt okunur).
+ */
 export default async function ContentCalendarPage({
   searchParams,
 }: {
@@ -23,11 +33,30 @@ export default async function ContentCalendarPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (!isStaffRole(session.user.role) && !session.user.viewOnly) redirect("/");
   const h = await headers();
+  const sp = await searchParams;
+
+  // Marka paneli: yalnızca o markanın takvimi, salt okunur.
+  // (Üyelik kontrolü layout'ta; burada tenant her zaman host'tan gelir, URL'den değil.)
+  if (h.get("x-panel-mode") === "tenant") {
+    const slug = h.get("x-tenant-slug");
+    const tenant = slug ? await resolvePanelTenant(slug) : null;
+    if (!tenant) notFound();
+    const month = sp.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month) ? sp.month : currentMonth();
+    const { from, to } = monthBounds(month);
+    const posts = await listClientCalendarPosts({ tenantId: tenant.id, from, to });
+    return (
+      <ClientContentCalendar
+        month={month}
+        today={istanbulDayKey(new Date())}
+        posts={posts}
+      />
+    );
+  }
+
+  if (!isStaffRole(session.user.role) && !session.user.viewOnly) redirect("/");
   if (h.get("x-panel-mode") !== "staff") redirect("/login?error=AccessDenied");
 
-  const sp = await searchParams;
   // /paylasimlar → ?post=<id>: içeriğin ayını aç ve detayını göster.
   const linkedPost = sp.post
     ? await prisma.contentPost.findUnique({ where: { id: sp.post }, select: { id: true, scheduledAt: true } })

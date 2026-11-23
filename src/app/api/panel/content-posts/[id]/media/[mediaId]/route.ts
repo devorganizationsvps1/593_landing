@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requirePermissionApi, requirePortalViewApi } from "@/lib/panel/staff-auth";
+import { auth } from "@/auth";
+import { isStaffRole } from "@/lib/panel/host";
+import { requirePermissionApi } from "@/lib/panel/staff-auth";
 import { deleteMedia, readMedia } from "@/lib/social/media";
 import { s3Enabled, s3SignedGetUrl, S3_SIGNED_URL_TTL } from "@/lib/storage/s3";
 
@@ -10,10 +12,31 @@ type Ctx = { params: Promise<{ id: string; mediaId: string }> };
 
 /** GET — panel önizlemesi (S3 → imzalı yönlendirme). */
 export async function GET(_request: Request, ctx: Ctx) {
-  const { error } = await requirePortalViewApi();
-  if (error) return error;
+  const session = await auth();
+  if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
   const { id, mediaId } = await ctx.params;
-  const m = await prisma.contentMedia.findFirst({ where: { id: mediaId, postId: id } });
+  const m = await prisma.contentMedia.findFirst({
+    where: { id: mediaId, postId: id },
+    include: { post: { select: { tenantId: true, tenant: { select: { slug: true } } } } },
+  });
+  // Ajans (staff / görüntüleyici) her içeriği; marka üyesi yalnızca kendi markasınınkini görür.
+  const staff = isStaffRole(session.user.role) || session.user.viewOnly;
+  if (!staff) {
+    const ids = session.user.tenantIds;
+    const member =
+      m != null &&
+      (ids.includes(m.post.tenantId) ||
+        // Oturum eski tenant id tutuyorsa slug ile doğrula (layout ile aynı kural).
+        (ids.length > 0 &&
+          Boolean(
+            await prisma.tenant.findFirst({
+              where: { id: { in: ids }, slug: m.post.tenant.slug },
+              select: { id: true },
+            }),
+          )));
+    // Başka markanın medyası için varlık bilgisi sızdırma → 404.
+    if (!member) return new NextResponse("Not found", { status: 404 });
+  }
   if (!m) return new NextResponse("Not found", { status: 404 });
   if (s3Enabled()) {
     return NextResponse.redirect(await s3SignedGetUrl(m.storageKey), {
