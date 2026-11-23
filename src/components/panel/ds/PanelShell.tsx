@@ -21,6 +21,7 @@ import {
   Menu,
   Lightbulb,
   Megaphone,
+  NotebookPen,
   Receipt,
   Settings,
   Users,
@@ -63,6 +64,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/audit": History,
   "/settings": Settings,
   "/oneriler": Lightbulb,
+  "/notlar": NotebookPen,
   "/sunucular": Server,
 };
 

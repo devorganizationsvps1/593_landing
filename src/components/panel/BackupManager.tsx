@@ -18,6 +18,7 @@ const SECTION_LABELS: Array<{ key: string; label: string }> = [
   { key: "meetings", label: "toplantı" },
   { key: "contentPosts", label: "içerik" },
   { key: "suggestions", label: "öneri" },
+  { key: "staffNotes", label: "genel not" },
 ];
 
 function formatSize(bytes: number): string {

@@ -62,7 +62,7 @@ export function backupFileName(b: { id: string; createdAt: string }): string {
 /* ───────────── Anlık görüntü ───────────── */
 
 export async function buildSnapshot(trigger: BackupTrigger) {
-  const [users, teams, tenants, board, notes, meetings, contentPosts, suggestions] =
+  const [users, teams, tenants, board, notes, meetings, contentPosts, suggestions, staffNotes] =
     await Promise.all([
       prisma.user.findMany({
         select: { id: true, email: true, name: true, role: true },
@@ -106,6 +106,7 @@ export async function buildSnapshot(trigger: BackupTrigger) {
       }),
       prisma.contentPost.findMany({ orderBy: { scheduledAt: "asc" } }),
       prisma.suggestion.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.staffNote.findMany({ orderBy: { createdAt: "asc" } }),
     ]);
 
   const cards = board?.columns.reduce((n, c) => n + c.cards.length, 0) ?? 0;
@@ -116,6 +117,7 @@ export async function buildSnapshot(trigger: BackupTrigger) {
     meetings: meetings.length,
     contentPosts: contentPosts.length,
     suggestions: suggestions.length,
+    staffNotes: staffNotes.length,
   };
 
   const snapshot = {
@@ -131,6 +133,7 @@ export async function buildSnapshot(trigger: BackupTrigger) {
     meetings,
     contentPosts,
     suggestions,
+    staffNotes,
   };
   return { snapshot, counts };
 }

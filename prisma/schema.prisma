@@ -340,6 +340,7 @@ model User {
   meetingAttendances    MeetingAttendee[]
   actionItemAssignments MeetingActionItemAssignee[]
   suggestions           Suggestion[]
+  staffNotes            StaffNote[]                 @relation("StaffNoteAuthor")
   backups               Backup[]                    @relation("BackupCreator")
   officeShifts          OfficeShift[]
   officeShiftsUpdated   OfficeShift[]               @relation("OfficeShiftEditor")
@@ -1244,6 +1245,26 @@ model Suggestion {
   author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+}
+
+/// Genel ajans notları (Notlar sayfası) — markadan bağımsız referans/not
+/// defteri. `private` → yalnızca yazarı görür; aksi halde tüm staff.
+model StaffNote {
+  id        String   @id @default(cuid())
+  title     String   @default("")
+  body      String   @default("")
+  /// Referans görselleri (/uploads/board/…) — Durum kartlarıyla aynı depo.
+  images    String[] @default([])
+  pinned    Boolean  @default(false)
+  private   Boolean  @default(false)
+  authorId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User? @relation("StaffNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([updatedAt])
+  @@index([authorId])
 }
 
 /// Panel içi verilerin (durum panosu, notlar, toplantılar, içerik takvimi,

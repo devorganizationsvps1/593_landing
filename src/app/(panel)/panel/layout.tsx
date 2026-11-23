@@ -91,6 +91,7 @@ export default async function PanelLayout({
       browserPath.startsWith("/vardiya/") ||
       browserPath === "/toplantilar" ||
       browserPath.startsWith("/toplantilar/") ||
+      browserPath === "/notlar" ||
       browserPath === "/takvim" ||
       browserPath.startsWith("/takvim/") ||
       browserPath === "/audit" ||
