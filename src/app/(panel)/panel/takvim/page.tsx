@@ -19,7 +19,7 @@ function monthBounds(month: string): { from: Date; to: Date } {
 export default async function ContentCalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string; tenant?: string }>;
+  searchParams: Promise<{ month?: string; tenant?: string; post?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -28,11 +28,21 @@ export default async function ContentCalendarPage({
   if (h.get("x-panel-mode") !== "staff") redirect("/login?error=AccessDenied");
 
   const sp = await searchParams;
+  // /paylasimlar → ?post=<id>: içeriğin ayını aç ve detayını göster.
+  const linkedPost = sp.post
+    ? await prisma.contentPost.findUnique({ where: { id: sp.post }, select: { id: true, scheduledAt: true } })
+    : null;
   // Sunucu UTC çalışabilir; ay başında gece yanlış ay açılmasın diye İstanbul saatine göre.
   const month =
     sp.month && /^\d{4}-\d{2}$/.test(sp.month)
       ? sp.month
-      : new Intl.DateTimeFormat("en-CA", {
+      : linkedPost
+        ? new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Istanbul",
+            year: "numeric",
+            month: "2-digit",
+          }).format(linkedPost.scheduledAt)
+        : new Intl.DateTimeFormat("en-CA", {
           timeZone: "Europe/Istanbul",
           year: "numeric",
           month: "2-digit",
@@ -74,6 +84,7 @@ export default async function ContentCalendarPage({
         teams: u.teamMemberships.map((m) => m.team.slug),
       }))}
       initialTenantId={initialTenantId}
+      initialPostId={linkedPost?.id ?? null}
       canEdit={can(session.user.role, "brands.edit")}
     />
   );

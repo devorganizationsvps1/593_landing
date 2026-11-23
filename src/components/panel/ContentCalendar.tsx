@@ -327,6 +327,7 @@ export default function ContentCalendar({
   tenants,
   staff,
   initialTenantId,
+  initialPostId = null,
   canEdit,
 }: {
   month: string;
@@ -334,6 +335,8 @@ export default function ContentCalendar({
   tenants: TenantOpt[];
   staff: StaffOpt[];
   initialTenantId: string | null;
+  /** /paylasimlar bağlantısı: bu içeriğin detayı açık başlar. */
+  initialPostId?: string | null;
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -377,7 +380,10 @@ export default function ContentCalendar({
     setSidebar((s) =>
       s === "auto" ? (window.innerWidth >= 1024 ? "closed" : "open") : s === "open" ? "closed" : "open",
     );
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(() => {
+    const linked = initialPostId ? initialPosts.find((p) => p.id === initialPostId) : undefined;
+    return linked ? draftFromPost(linked) : null;
+  });
   // Formun açılıştaki hali: kapatırken kaydedilmemiş değişikliği anlamak için.
   const draftBase = useRef("");
   // Metin seçerken fare pencere dışında bırakılırsa form kapanmasın.
