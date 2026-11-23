@@ -50,7 +50,7 @@ export default function HeaderTaskSummary() {
   return (
     <nav
       aria-label="Görev özeti"
-      className="hidden shrink-0 items-center gap-1 md:flex"
+      className="hidden shrink-0 items-center gap-0.5 border-r border-panel-border pr-2 md:flex"
     >
       <Stat
         href={`/board?today=1${mine}`}
@@ -77,10 +77,10 @@ export default function HeaderTaskSummary() {
   );
 }
 
-const TONES = {
-  amber: "bg-amber-50 text-amber-800 ring-amber-200 hover:bg-amber-100",
-  sky: "bg-sky-50 text-sky-800 ring-sky-200 hover:bg-sky-100",
-  rose: "bg-rose-50 text-rose-700 ring-rose-200 hover:bg-rose-100",
+const DOTS = {
+  amber: "bg-amber-500",
+  sky: "bg-sky-500",
+  rose: "bg-rose-500",
 } as const;
 
 function Stat({
@@ -94,21 +94,29 @@ function Stat({
   label: string;
   value: number;
   title: string;
-  tone: keyof typeof TONES;
+  tone: keyof typeof DOTS;
 }) {
   const active = value > 0;
   return (
     <Link
       href={href}
       title={title}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] font-medium ring-1 ring-inset transition ${
-        active
-          ? TONES[tone]
-          : "bg-panel-surface-muted text-panel-fg-muted ring-panel-border hover:text-panel-fg"
-      }`}
+      className="group inline-flex items-center gap-2 whitespace-nowrap rounded-panel-btn px-2.5 py-1.5 transition hover:bg-panel-surface-muted"
     >
-      <span>{label}</span>
-      <span className="font-semibold tabular-nums">{value}</span>
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${active ? DOTS[tone] : "bg-panel-border"}`}
+        aria-hidden
+      />
+      <span className="text-[12px] text-panel-fg-secondary group-hover:text-panel-fg">
+        {label}
+      </span>
+      <span
+        className={`text-[13px] font-semibold tabular-nums ${
+          active ? "text-panel-fg" : "text-panel-fg-muted"
+        }`}
+      >
+        {value}
+      </span>
     </Link>
   );
 }
