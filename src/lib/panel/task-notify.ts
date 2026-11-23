@@ -28,11 +28,144 @@ export function taskTemplateName(): string {
   return templateName("gorev");
 }
 
+/** Göreve bağlantı eklendi şablonu: `${WHATSAPP_TEMPLATE_PREFIX}gorev_baglanti`. */
+export function taskLinkTemplateName(): string {
+  return templateName("gorev_baglanti");
+}
+
+const LINK_RE = /https?:\/\/[^\s<>"'()]+/gi;
+
+/** Metindeki http(s) bağlantıları (sondaki noktalama hariç, tekrarsız). */
+export function extractTaskLinks(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const plain = text.replace(/\{\/?(red|orange|green|blue|purple)\}|\*\*/g, " ");
+  const found = (plain.match(LINK_RE) ?? []).map((u) => u.replace(/[.,;:!?*]+$/, ""));
+  return [...new Set(found)];
+}
+
+/**
+ * Açıklamaya yeni bağlantı eklenince (tasarım / video hazır vb.) karta atanmış
+ * diğer kişilere WhatsApp. Ekleyen kişi ve bu istekte yeni atananlar (onlara
+ * zaten atama bildirimi gider) hariç. Hiçbir zaman fırlatmaz.
+ *
+ * Şablon gövdesi: görev, eklenen bağlantı(lar), marka, ekleyen.
+ * URL butonu `uyari_gorev` ile aynı: /board?card={{1}}.
+ */
+export async function notifyTaskLinkAdded(opts: {
+  cardId: string;
+  links: string[];
+  actorId: string | null;
+  skipUserIds?: string[];
+}): Promise<void> {
+  try {
+    if (opts.links.length === 0) return;
+    if (!whatsappConfigured() || !(await whatsappEnabled())) return;
+
+    const skip = new Set([...(opts.skipUserIds ?? []), opts.actorId ?? ""]);
+    const [card, actor] = await Promise.all([
+      prisma.boardCard.findUnique({
+        where: { id: opts.cardId },
+        select: {
+          id: true,
+          title: true,
+          tenantId: true,
+          tenant: { select: { name: true } },
+          team: { select: { name: true } },
+          assignees: {
+            select: {
+              user: { select: { id: true, name: true, email: true, phone: true, role: true } },
+            },
+          },
+        },
+      }),
+      opts.actorId
+        ? prisma.user.findUnique({
+            where: { id: opts.actorId },
+            select: { name: true, email: true },
+          })
+        : null,
+    ]);
+    if (!card) return;
+
+    const users = card.assignees
+      .map((a) => a.user)
+      .filter((u) => !skip.has(u.id) && (u.role === "admin" || u.role === "team"));
+    if (users.length === 0) return;
+
+    const template = taskLinkTemplateName();
+    const linkText =
+      opts.links.length === 1
+        ? opts.links[0]
+        : `${opts.links[0]} (+${opts.links.length - 1} bağlantı daha)`;
+    const params = [
+      card.title,
+      linkText,
+      card.tenant?.name ?? card.team?.name ?? "Genel",
+      actor ? actor.name || actor.email : "593 Panel",
+    ];
+    const note = `Göreve bağlantı eklendi: ${card.title}`.slice(0, 300);
+    await sendToUsers({ users, template, params, buttonParam: card.id, tenantId: card.tenantId, note });
+  } catch (err) {
+    console.error("[notify] task-link", opts.cardId, err);
+  }
+}
+
+/** Her kullanıcıya şablonu gönderir, sonucu NotificationLog'a yazar. */
+async function sendToUsers(opts: {
+  users: Array<{ name: string | null; email: string; phone: string | null }>;
+  template: string;
+  params: string[];
+  buttonParam: string;
+  tenantId: string | null;
+  note: string;
+}): Promise<void> {
+  const { template, params, tenantId, note } = opts;
+  for (const u of opts.users) {
+    const phone = normalizePhone(u.phone);
+    if (!phone) {
+      await prisma.notificationLog.create({
+        data: {
+          tenantId,
+          channel: "none",
+          recipient: u.name || u.email,
+          template,
+          status: "skipped",
+          error: `${note} — kullanıcının telefonu yok`,
+        },
+      });
+      continue;
+    }
+    try {
+      await sendWhatsAppTemplate({
+        to: phone,
+        template,
+        bodyParams: params,
+        buttonParam: opts.buttonParam,
+      });
+      await prisma.notificationLog.create({
+        data: { tenantId, channel: "whatsapp", recipient: phone, template, status: "sent", error: note },
+      });
+    } catch (err) {
+      await prisma.notificationLog.create({
+        data: {
+          tenantId,
+          channel: "whatsapp",
+          recipient: phone,
+          template,
+          status: "failed",
+          error: `${note} — ${err instanceof Error ? err.message : String(err)}`.slice(0, 1000),
+        },
+      });
+    }
+  }
+}
+
 /** Açıklama tek satıra iner (şablon parametresi satır sonu kabul etmez). */
 function plainDescription(text: string | null): string {
   const t = (text ?? "")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\{\/?(red|orange|green|blue|purple)\}/g, "")
     .replace(/[*_`#>]+/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -104,51 +237,7 @@ export async function notifyTaskAssigned(opts: {
     ];
     const note = `Görev ataması: ${card.title}`.slice(0, 300);
 
-    for (const u of users) {
-      const phone = normalizePhone(u.phone);
-      if (!phone) {
-        await prisma.notificationLog.create({
-          data: {
-            tenantId: card.tenantId,
-            channel: "none",
-            recipient: u.name || u.email,
-            template,
-            status: "skipped",
-            error: `${note} — kullanıcının telefonu yok`,
-          },
-        });
-        continue;
-      }
-      try {
-        await sendWhatsAppTemplate({
-          to: phone,
-          template,
-          bodyParams: params,
-          buttonParam: card.id,
-        });
-        await prisma.notificationLog.create({
-          data: {
-            tenantId: card.tenantId,
-            channel: "whatsapp",
-            recipient: phone,
-            template,
-            status: "sent",
-            error: note,
-          },
-        });
-      } catch (err) {
-        await prisma.notificationLog.create({
-          data: {
-            tenantId: card.tenantId,
-            channel: "whatsapp",
-            recipient: phone,
-            template,
-            status: "failed",
-            error: `${note} — ${err instanceof Error ? err.message : String(err)}`.slice(0, 1000),
-          },
-        });
-      }
-    }
+    await sendToUsers({ users, template, params, buttonParam: card.id, tenantId: card.tenantId, note });
   } catch (err) {
     console.error("[notify] task", opts.cardId, err);
   }

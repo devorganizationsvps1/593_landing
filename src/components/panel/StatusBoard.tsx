@@ -52,12 +52,14 @@ import {
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isCardOverdue, overdueDays } from "@/lib/panel/board";
+import { isCardDueToday, isReviewColumn } from "@/lib/panel/board-summary";
 import {
   TeamPlatformIcon,
   avatarTone,
   getColumnStatusMeta,
 } from "@/components/panel/TeamPlatformIcon";
-import { RichText, URL_RE, shortUrl } from "@/components/panel/RichText";
+import { RichText, URL_RE, shortUrl, stripFormatting } from "@/components/panel/RichText";
+import FormatToolbar, { handleFormatKeyDown } from "@/components/panel/FormatToolbar";
 
 type StaffUser = {
   id: string;
@@ -211,6 +213,10 @@ type BoardFilters = {
   assignee: string;
   priority: string;
   overdue: boolean;
+  /** Son tarihi bugün olanlar (üst çubuk özeti). */
+  today: boolean;
+  /** Onay bekleyenler — İncelemede kolonu (üst çubuk özeti). */
+  review: boolean;
   group: "status" | "team";
 };
 
@@ -226,6 +232,8 @@ function parseFilters(sp: URLSearchParams): BoardFilters {
     assignee: sp.get("assignee") ?? "",
     priority: validPriority,
     overdue: sp.get("overdue") === "1",
+    today: sp.get("today") === "1",
+    review: sp.get("review") === "1",
     group,
   };
 }
@@ -250,6 +258,8 @@ function cardMatchesFilters(
   if (filters.overdue) {
     if (!isCardOverdue({ dueAt: card.dueAt, columnName })) return false;
   }
+  if (filters.today && !isCardDueToday({ dueAt: card.dueAt, columnName })) return false;
+  if (filters.review && !isReviewColumn(columnName)) return false;
   return true;
 }
 
@@ -286,6 +296,8 @@ export default function StatusBoard({
       if (next.assignee) params.set("assignee", next.assignee);
       if (next.priority) params.set("priority", next.priority);
       if (next.overdue) params.set("overdue", "1");
+      if (next.today) params.set("today", "1");
+      if (next.review) params.set("review", "1");
       if (next.group === "team") params.set("group", "team");
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -949,6 +961,8 @@ export default function StatusBoard({
     Boolean(filters.assignee) ||
     Boolean(filters.priority) ||
     filters.overdue ||
+    filters.today ||
+    filters.review ||
     Boolean(normalizedQuery);
 
   return (
@@ -1060,6 +1074,30 @@ export default function StatusBoard({
             <Clock className="size-3.5" aria-hidden />
             Gecikenler
           </button>
+          <button
+            type="button"
+            aria-pressed={filters.today}
+            onClick={() => setFilters({ today: !filters.today })}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
+              filters.today
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
+            }`}
+          >
+            Bugün teslim
+          </button>
+          <button
+            type="button"
+            aria-pressed={filters.review}
+            onClick={() => setFilters({ review: !filters.review })}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
+              filters.review
+                ? "border-sky-200 bg-sky-50 text-sky-800"
+                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
+            }`}
+          >
+            Onay bekleyen
+          </button>
           {hasActiveFilters ? (
             <button
               type="button"
@@ -1071,6 +1109,8 @@ export default function StatusBoard({
                   assignee: "",
                   priority: "",
                   overdue: false,
+                  today: false,
+                  review: false,
                 });
               }}
               className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
@@ -1721,7 +1761,9 @@ function SortableCard({
 /** Açıklamadaki http(s) bağlantıları (sondaki noktalama hariç, tekrarsız). */
 function extractLinks(text: string | null | undefined): string[] {
   if (!text) return [];
-  const found = (text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ""));
+  const found = (stripFormatting(text).match(URL_RE) ?? []).map((u) =>
+    u.replace(/[.,;:!?]+$/, ""),
+  );
   return [...new Set(found)];
 }
 
@@ -1857,10 +1899,18 @@ function DescriptionField({
 
   return (
     <div className="space-y-2">
+      <div className="overflow-hidden rounded-lg border border-zinc-200 focus-within:border-[#e91825]">
+      <FormatToolbar
+        textareaRef={ref}
+        value={value}
+        onChange={onChange}
+        className="border-b border-zinc-100 bg-zinc-50/70 px-1.5 py-1"
+      />
       <textarea
         ref={ref}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => handleFormatKeyDown(e, { ref, value, onChange })}
         onBlur={() => {
           if (value.trim()) setMode("read");
         }}
@@ -1876,8 +1926,9 @@ function DescriptionField({
         }}
         rows={5}
         placeholder="Açıklama — link ve ekran görüntüsü yapıştırabilirsiniz"
-        className="w-full resize-y rounded-lg border border-zinc-200 px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-[#e91825]"
+        className="block w-full resize-y border-0 px-3 py-2.5 text-sm leading-relaxed outline-none focus:ring-0"
       />
+      </div>
       <DescriptionLinks text={value} />
     </div>
   );

@@ -183,7 +183,7 @@ export class WhatsAppError extends Error {
  * Şablon adı = WHATSAPP_TEMPLATE_PREFIX (vars. "panel_") + kısa ad.
  * Şablon Meta'da yoksa / parametre sayısı uymuyorsa genel şablona düşülür.
  */
-export type WaTemplateKey = "odeme" | "harcama" | "butce" | "maliyet" | "veri" | "olcum" | "alert" | "gorev";
+export type WaTemplateKey = "odeme" | "harcama" | "butce" | "maliyet" | "veri" | "olcum" | "alert" | "gorev" | "gorev_baglanti";
 
 /** Panelin ihtiyaç duyduğu şablonlar — yönetim sayfası Meta durumuyla eşleştirir. */
 export const WA_TEMPLATES: ReadonlyArray<{ key: WaTemplateKey; label: string }> = [
@@ -195,6 +195,7 @@ export const WA_TEMPLATES: ReadonlyArray<{ key: WaTemplateKey; label: string }> 
   { key: "olcum", label: "Ölçüm / kurulum sorunu" },
   { key: "alert", label: "Genel yedek ve test mesajı" },
   { key: "gorev", label: "Yeni görev ataması (durum panosu)" },
+  { key: "gorev_baglanti", label: "Göreve bağlantı eklendi (durum panosu)" },
 ];
 
 function templatePrefix(): string {

@@ -3,7 +3,11 @@ import type { BoardCardPriority, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/panel/audit";
 import { deleteBoardImageFiles } from "@/lib/panel/board-images";
-import { notifyTaskAssigned } from "@/lib/panel/task-notify";
+import {
+  extractTaskLinks,
+  notifyTaskAssigned,
+  notifyTaskLinkAdded,
+} from "@/lib/panel/task-notify";
 import {
   boardCardInclude,
   serializeBoardCard,
@@ -114,11 +118,15 @@ export async function PATCH(
     }
   }
 
+  // Açıklamaya yeni eklenen bağlantılar → diğer atananlara bildirim.
+  const newLinks: string[] = [];
   if (body.description !== undefined) {
     const description =
       body.description == null ? null : String(body.description).trim() || null;
     data.description = description;
     activities.push({ type: "updated", message: "Açıklama güncellendi" });
+    const before = new Set(extractTaskLinks(existing.description));
+    newLinks.push(...extractTaskLinks(description).filter((l) => !before.has(l)));
   }
 
   if (body.teamId !== undefined) {
@@ -341,6 +349,11 @@ export async function PATCH(
 
   if (added.length > 0) {
     after(() => notifyTaskAssigned({ cardId: id, userIds: added, actorId }));
+  }
+  if (newLinks.length > 0) {
+    after(() =>
+      notifyTaskLinkAdded({ cardId: id, links: newLinks, actorId, skipUserIds: added }),
+    );
   }
 
   const card = await prisma.boardCard.findUnique({

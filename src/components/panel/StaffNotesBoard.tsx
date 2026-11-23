@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { btnPrimary, fieldClass } from "@/components/panel/ds/buttons";
-import { RichText } from "@/components/panel/RichText";
+import { RichText, stripFormatting } from "@/components/panel/RichText";
+import FormatToolbar, { handleFormatKeyDown } from "@/components/panel/FormatToolbar";
 import {
   STAFF_NOTE_BODY_MAX,
   STAFF_NOTE_TITLE_MAX,
@@ -155,7 +156,7 @@ export default function StaffNotesBoard({
           <ul className="min-h-0 flex-1 divide-y divide-zinc-100 overflow-y-auto">
             {visible.map((n) => {
               const on = n.id === activeId;
-              const snippet = n.body.replace(/\s+/g, " ").trim();
+              const snippet = stripFormatting(n.body).replace(/\s+/g, " ").trim();
               return (
                 <li key={n.id}>
                   <button
@@ -302,6 +303,12 @@ function NoteEditor({
     setSave("dirty");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+  };
+
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const changeBody = (next: string) => {
+    setBody(next);
+    queue({ body: next });
   };
 
   // Başka nota geçince / sayfadan çıkınca bekleyen değişiklik kaybolmasın.
@@ -463,12 +470,20 @@ function NoteEditor({
               <RichText text={body} />
             </div>
           ) : (
-            <textarea
+            <>
+            <FormatToolbar
+              textareaRef={bodyRef}
               value={body}
-              onChange={(e) => {
-                setBody(e.target.value);
-                queue({ body: e.target.value });
-              }}
+              onChange={changeBody}
+              className="px-1.5 pt-1"
+            />
+            <textarea
+              ref={bodyRef}
+              value={body}
+              onChange={(e) => changeBody(e.target.value)}
+              onKeyDown={(e) =>
+                handleFormatKeyDown(e, { ref: bodyRef, value: body, onChange: changeBody })
+              }
               onBlur={() => void flush()}
               rows={12}
               maxLength={STAFF_NOTE_BODY_MAX}
@@ -476,6 +491,7 @@ function NoteEditor({
               placeholder="Notunu, linkleri, referansları yaz… Görsel için ⌘V ile yapıştır."
               className="block w-full resize-y border-0 bg-transparent px-3 pb-3 pt-1.5 text-sm leading-relaxed text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-0"
             />
+            </>
           )}
         </div>
 

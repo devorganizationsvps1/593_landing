@@ -42,16 +42,16 @@ export default function HeaderQuote({ className = "" }: { className?: string }) 
     >
       {q ? (
         <>
-          <blockquote className="truncate text-xs font-semibold text-panel-fg sm:text-[13px]">
+          <blockquote className="truncate text-[11px] font-semibold text-panel-fg sm:text-xs">
             &ldquo;{q.quote}&rdquo;
           </blockquote>
-          <figcaption className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[11px] text-panel-fg-secondary">
+          <figcaption className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-[10px] text-panel-fg-secondary">
             {q.author ? (
               <cite className="shrink-0 not-italic font-semibold text-panel-fg">
                 — {q.author}
               </cite>
             ) : null}
-            <span className="truncate italic">({q.translation})</span>
+            <span className="hidden truncate italic 2xl:inline">({q.translation})</span>
           </figcaption>
         </>
       ) : (

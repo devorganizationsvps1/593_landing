@@ -39,6 +39,7 @@ import {
 import { PeriodNavIndicator } from "../period-nav/PeriodNavUi";
 import HeaderQuote from "./HeaderQuote";
 import HeaderClock from "./HeaderClock";
+import HeaderTaskSummary from "./HeaderTaskSummary";
 import dynamic from "next/dynamic";
 
 /** Landing'deki 3B logo — yalnızca istemcide (three.js). */
@@ -196,6 +197,7 @@ export default function PanelShell({
           </button>
           <h1 className="sr-only">{pageTitle}</h1>
           <HeaderQuote className="mr-auto flex-1" />
+          {variant === "staff" ? <HeaderTaskSummary /> : null}
           <HeaderClock />
           {topBarExtra ? (
             <div className="hidden items-center gap-2 md:flex">{topBarExtra}</div>

@@ -125,7 +125,7 @@ export default function HeaderClock() {
     >
       {markets ? (
         <dl
-          className="hidden items-center gap-3 pr-3 lg:flex"
+          className="hidden items-center gap-3 pr-3 xl:flex"
           title={`Kurlar: ${new Date(markets.ratesAt).toLocaleString("tr-TR")} · Ons altın: ${markets.goldOunceUsd.toFixed(0)} $`}
         >
           <Rate label="USD" value={tryFmt.format(markets.usdTry)} />
@@ -136,7 +136,7 @@ export default function HeaderClock() {
 
       {weather && w ? (
         <div
-          className="hidden items-center gap-2 px-3 md:flex"
+          className="hidden items-center gap-2 px-3 lg:flex"
           title={`${weather.city} · ${w.label} · hissedilen ${weather.feelsC}° · rüzgar ${weather.windKmh} km/sa`}
         >
           <w.Icon className="size-[18px] text-panel-fg-secondary" aria-hidden strokeWidth={1.75} />

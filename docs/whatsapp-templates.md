@@ -162,3 +162,25 @@ Atayan: {{6}}
 
 Bu bildirim, 593 Panel durum panosunda size görev atandığı için gönderildi.
 ```
+
+## `uyari_gorev_baglanti` — Göreve bağlantı eklendi (durum panosu)
+Kaynak: `src/lib/panel/task-notify.ts` → `notifyTaskLinkAdded`. Bir kartın açıklamasına
+yeni bir http(s) bağlantısı eklenip kaydedilince karta atanmış **diğer** kişilere gider
+(ekleyen ve aynı kayıtta yeni atananlar hariç — onlara `uyari_gorev` gider). Birden çok
+yeni bağlantı varsa ilki gösterilir, kalan sayısı eklenir. WhatsApp ana anahtarı geçerli.
+Kategori: **Utility**, dil **tr**. Header / footer / buton `uyari_gorev` ile aynı:
+
+- **Header:** `593 Panel · Görev güncellendi`
+- **Footer:** `Görev durumunu panelden güncelleyebilirsiniz.`
+- **Button (URL, dinamik):** `Görevi aç` → `https://admin.593emarketing.com/board?card={{1}}`
+
+```
+Atandığınız göreve yeni bir bağlantı eklendi.
+
+Görev: {{1}}
+Bağlantı: {{2}}
+Marka: {{3}}
+Ekleyen: {{4}}
+
+Bu bildirim, 593 Panel durum panosunda atandığınız göreve içerik eklendiği için gönderildi.
+```
