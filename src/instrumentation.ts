@@ -10,6 +10,13 @@ export async function register() {
     startServerMonitorScheduler();
   }
 
+  if (process.env.SOCIAL_PUBLISH_DISABLED !== "true") {
+    const { startSocialPublishScheduler } = await import(
+      "@/lib/social/scheduler"
+    );
+    startSocialPublishScheduler();
+  }
+
   if (process.env.DAILY_SYNC_DISABLED === "true") return;
 
   const { startDailySyncScheduler } = await import(

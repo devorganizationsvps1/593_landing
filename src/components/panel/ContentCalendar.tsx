@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { ContentPostStatus } from "@prisma/client";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
+import PublishPanel from "@/components/panel/PublishPanel";
 import { RichText } from "@/components/panel/RichText";
 import { brandInitials, resolveBrandCover } from "@/lib/panel/brand-logos";
 import {
@@ -89,6 +90,8 @@ type TenantOpt = {
   slug: string;
   visible?: boolean;
   coverUrl?: string | null;
+  /** Hiç içerik planlanmış mı — yoksa kenar çubuğunda gizlenir. */
+  hasContent?: boolean;
 };
 type BrandMedia = ReturnType<typeof resolveBrandCover>;
 type StaffOpt = { id: string; label: string; teams: string[] };
@@ -351,6 +354,14 @@ export default function ContentCalendar({
     () => new Set(initialTenantId ? [initialTenantId] : []),
   );
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(() => new Set());
+  // Kenar çubuğu: yalnızca içeriği olan markalar (+ bu oturumda içerik eklenen
+  // ya da seçili olanlar). Yeni içerik formundaki marka listesi tümünü gösterir.
+  const sidebarTenants = useMemo(() => {
+    const withPosts = new Set(posts.map((p) => p.tenantId));
+    return tenants.filter(
+      (t) => t.hasContent || withPosts.has(t.id) || selectedTenants.has(t.id),
+    );
+  }, [tenants, posts, selectedTenants]);
   const toggleIn = (prev: Set<string>, id: string) => {
     const n = new Set(prev);
     if (n.has(id)) n.delete(id);
@@ -996,7 +1007,7 @@ export default function ContentCalendar({
                 }
               >
                 <ul className="space-y-0.5">
-                  {tenants.map((t) => {
+                  {sidebarTenants.map((t) => {
                     const all = selectedTenants.size === 0;
                     const on = all || selectedTenants.has(t.id);
                     const color = colorOf(t.id);
@@ -1489,6 +1500,25 @@ export default function ContentCalendar({
                     ),
                   )}
                 </div>
+              ) : null}
+
+              {draft.id && current ? (
+                <PublishPanel
+                  key={current.id}
+                  postId={current.id}
+                  tenantSlug={current.tenantSlug}
+                  caption={draft.caption}
+                  scheduledAt={current.scheduledAt}
+                  canEdit={canEdit}
+                  unsaved={
+                    draft.caption.trim() !== current.caption.trim() ||
+                    draft.scheduledAt !== toLocalInput(current.scheduledAt)
+                  }
+                />
+              ) : canEdit ? (
+                <p className="mt-4 rounded-xl border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500">
+                  Medya yükleme ve otomatik paylaşım (Instagram, Facebook, TikTok, YouTube) içerik kaydedildikten sonra açılır.
+                </p>
               ) : null}
 
               {error ? <p className="mt-3 text-xs text-rose-600">{error}</p> : null}

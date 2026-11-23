@@ -39,7 +39,7 @@ export default async function ContentCalendarPage({
         }).format(new Date());
   const { from, to } = monthBounds(month);
 
-  const [tenants, staff] = await Promise.all([
+  const [tenants, staff, withContent] = await Promise.all([
     // Pasif (gizli) markalar da listelenir — içerik planı görünürlükten bağımsız.
     prisma.tenant.findMany({
       select: { id: true, name: true, slug: true, visible: true, coverUrl: true },
@@ -55,7 +55,10 @@ export default async function ContentCalendarPage({
       },
       orderBy: [{ name: "asc" }, { email: "asc" }],
     }),
+    // Hiç içeriği olmayan markalar kenar çubuğunda gösterilmez.
+    prisma.contentPost.groupBy({ by: ["tenantId"] }),
   ]);
+  const hasContent = new Set(withContent.map((r) => r.tenantId));
   const initialTenantId = tenants.find((t) => t.slug === sp.tenant)?.id ?? null;
   // Tüm markaların içerikleri gelir; marka seçimi istemcide (kenar çubuğu).
   const posts = await listContentPosts({ from, to });
@@ -64,7 +67,7 @@ export default async function ContentCalendarPage({
     <ContentCalendar
       month={month}
       initialPosts={posts}
-      tenants={tenants}
+      tenants={tenants.map((t) => ({ ...t, hasContent: hasContent.has(t.id) }))}
       staff={staff.map((u) => ({
         id: u.id,
         label: u.name || u.email,

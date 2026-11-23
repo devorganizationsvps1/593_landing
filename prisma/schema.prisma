@@ -189,6 +189,7 @@ model Tenant {
   reports           BrandReport[]
   notificationLogs  NotificationLog[]
   meetings          Meeting[]
+  socialAccounts    SocialAccount[]
 
   @@index([ownerId])
 }
@@ -304,44 +305,44 @@ model TenantMapping {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  passwordHash  String
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
   /// Staff-only recoverable copy for agency settings (auth still uses passwordHash).
-  passwordPlain String?
-  name          String?
+  passwordPlain  String?
+  name           String?
   /// WhatsApp bildirimi için E.164 (ör. +905321234567).
-  phone         String?
+  phone          String?
   /// Profil fotoğrafı (/uploads/avatars/{id}.webp?v=…).
-  avatarUrl     String?
-  role          Role
+  avatarUrl      String?
+  role           Role
   /// Rol ve ekipten bağımsız: portalda yalnızca takvimi ve durum panosunu salt okunur görür (scripts/set-view-only.ts).
-  viewOnly      Boolean  @default(false)
+  viewOnly       Boolean  @default(false)
   /// ISO hafta günleri (1=Pazartesi … 7=Pazar). Kişinin düzenli ofis günleri; herkesinki ayrı.
-  officeWeekdays Int[]   @default([])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  officeWeekdays Int[]    @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  memberships        Membership[]
-  assignedAlerts     Alert[]             @relation("AlertAssignee")
-  teamMemberships    TeamMember[]
-  cardAssignments    BoardCardAssignee[]
-  createdCards       BoardCard[]         @relation("CardCreator")
-  cardActivities     BoardCardActivity[]
-  ownedTenants       Tenant[]            @relation("TenantOwner")
-  auditLogs          AuditLog[]
-  brandNotes         BrandNote[]         @relation("NoteAuthor")
-  contentAssigned    ContentPost[]       @relation("ContentAssignee")
-  contentDesigned    ContentPost[]       @relation("ContentDesigner")
-  contentCreated     ContentPost[]       @relation("ContentCreator")
-  reportsCreated     BrandReport[]
-  meetingsCreated    Meeting[]           @relation("MeetingCreator")
-  meetingAttendances MeetingAttendee[]
+  memberships           Membership[]
+  assignedAlerts        Alert[]                     @relation("AlertAssignee")
+  teamMemberships       TeamMember[]
+  cardAssignments       BoardCardAssignee[]
+  createdCards          BoardCard[]                 @relation("CardCreator")
+  cardActivities        BoardCardActivity[]
+  ownedTenants          Tenant[]                    @relation("TenantOwner")
+  auditLogs             AuditLog[]
+  brandNotes            BrandNote[]                 @relation("NoteAuthor")
+  contentAssigned       ContentPost[]               @relation("ContentAssignee")
+  contentDesigned       ContentPost[]               @relation("ContentDesigner")
+  contentCreated        ContentPost[]               @relation("ContentCreator")
+  reportsCreated        BrandReport[]
+  meetingsCreated       Meeting[]                   @relation("MeetingCreator")
+  meetingAttendances    MeetingAttendee[]
   actionItemAssignments MeetingActionItemAssignee[]
-  suggestions        Suggestion[]
-  backups            Backup[]            @relation("BackupCreator")
-  officeShifts         OfficeShift[]
-  officeShiftsUpdated  OfficeShift[]     @relation("OfficeShiftEditor")
+  suggestions           Suggestion[]
+  backups               Backup[]                    @relation("BackupCreator")
+  officeShifts          OfficeShift[]
+  officeShiftsUpdated   OfficeShift[]               @relation("OfficeShiftEditor")
 }
 
 /// Ajans içi sabit ekip (src/lib/panel/teams.ts). Üye çoka-çok (TeamMember).
@@ -764,7 +765,7 @@ model Alert {
   resolved         Boolean        @default(false)
   history          Json           @default("[]")
   /// Şablon parametreleri (platform, tutar, gün sayısı…) — bildirim metni buradan kurulur.
-  details          Json          @default("{}")
+  details          Json           @default("{}")
   /// Son bildirim (WhatsApp / e-posta) — aynı seviyede tekrar gönderilmez.
   notifiedAt       DateTime?
   notifiedSeverity AlertSeverity?
@@ -1024,14 +1025,122 @@ model ContentPost {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignee  User?      @relation("ContentAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  designer  User?      @relation("ContentDesigner", fields: [designerId], references: [id], onDelete: SetNull)
-  createdBy User?      @relation("ContentCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  boardCard BoardCard? @relation(fields: [boardCardId], references: [id], onDelete: SetNull)
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignee    User?               @relation("ContentAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  designer    User?               @relation("ContentDesigner", fields: [designerId], references: [id], onDelete: SetNull)
+  createdBy   User?               @relation("ContentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  boardCard   BoardCard?          @relation(fields: [boardCardId], references: [id], onDelete: SetNull)
+  /// true → `scheduledAt` geldiğinde hedef platformlara otomatik paylaşılır.
+  autoPublish Boolean             @default(false)
+  media       ContentMedia[]
+  targets     ContentPostTarget[]
 
   @@index([tenantId, scheduledAt])
   @@index([scheduledAt])
+}
+
+/// Otomatik paylaşım yapılabilen platformlar.
+enum SocialPlatform {
+  facebook
+  instagram
+  tiktok
+  youtube
+}
+
+enum PublishStatus {
+  pending
+  publishing
+  published
+  failed
+}
+
+/// Markanın bağlı sosyal hesabı (platform başına bir tane). Meta sayfaları ajans
+/// system user token'ıyla yönetilir (token saklanmaz); TikTok / YouTube OAuth
+/// token'ları AES-256-GCM ile şifreli tutulur (src/lib/social/crypto.ts).
+model SocialAccount {
+  id               String         @id @default(cuid())
+  tenantId         String
+  platform         SocialPlatform
+  /// FB sayfa id · IG kullanıcı id · TikTok open_id · YouTube kanal id
+  externalId       String
+  name             String
+  username         String?
+  pictureUrl       String?
+  /// meta_system_user | oauth
+  authSource       String         @default("oauth")
+  accessTokenEnc   String?
+  refreshTokenEnc  String?
+  tokenExpiresAt   DateTime?
+  scopes           String[]       @default([])
+  /// Instagram: bağlı Facebook sayfasının id'si (sayfa token'ı bununla alınır).
+  parentExternalId String?
+  /// active | error
+  status           String         @default("active")
+  lastError        String?
+  connectedById    String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  targets ContentPostTarget[]
+
+  @@unique([tenantId, platform])
+  @@index([platform, externalId])
+}
+
+/// Paylaşılacak görsel / video — depoda `social/<postId>/<dosya>`.
+model ContentMedia {
+  id           String   @id @default(cuid())
+  postId       String
+  /// image | video
+  kind         String
+  storageKey   String   @unique
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  durationSec  Float?
+  position     Int      @default(0)
+  originalName String   @default("")
+  createdAt    DateTime @default(now())
+
+  post ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, position])
+}
+
+/// Bir içeriğin tek platformdaki paylaşımı (format, durum, canlı link).
+model ContentPostTarget {
+  id              String         @id @default(cuid())
+  postId          String
+  platform        SocialPlatform
+  socialAccountId String?
+  /// post | reel | story | video | short | photo (src/lib/social/formats.ts)
+  format          String
+  /// Boşsa içeriğin ana metni kullanılır.
+  captionOverride String?
+  /// YouTube video başlığı.
+  title           String?
+  /// TikTok / YouTube görünürlüğü (public | private | unlisted …).
+  privacy         String?
+  status          PublishStatus  @default(pending)
+  attempts        Int            @default(0)
+  nextAttemptAt   DateTime?
+  lockedAt        DateTime?
+  /// Yarım kalan yükleme (IG container id vb.) — yeniden denemede kaldığı yerden.
+  progressRef     String?
+  externalId      String?
+  permalink       String?
+  lastError       String?
+  publishedAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  post    ContentPost    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  account SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, platform])
+  @@index([status, nextAttemptAt])
 }
 
 /// Otomatik kurulum kontrolü (UTM, GA4 key event, Pixel/CAPI, Ads dönüşüm).
@@ -1229,13 +1338,13 @@ model ServerEvent {
 /// Hosting takibi — firma (Dokploy projesi) başına yıllık dönem.
 /// key = "<kurulum>:<projectId>". Dönem = paidUntil'den geriye 1 yıl.
 model HostingAccount {
-  key       String    @id
+  key       String   @id
   /// Dönemin bittiği gün; "Ödeme alındı" 1 yıl ileri alır.
-  paidUntil DateTime  @db.Date
-  yearlyFee Decimal?  @db.Decimal(10, 2)
-  currency  String    @default("TRY")
+  paidUntil DateTime @db.Date
+  yearlyFee Decimal? @db.Decimal(10, 2)
+  currency  String   @default("TRY")
   note      String?
   /// Takip edilmeyen projeler (ajansın kendi siteleri vb.).
-  hidden    Boolean   @default(false)
-  updatedAt DateTime  @updatedAt
+  hidden    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
 }

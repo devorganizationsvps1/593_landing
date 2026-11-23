@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -77,10 +78,51 @@ export async function s3Get(key: string): Promise<Buffer | null> {
   }
 }
 
-export async function s3SignedGetUrl(key: string): Promise<string> {
+export async function s3SignedGetUrl(
+  key: string,
+  expiresIn: number = S3_SIGNED_URL_TTL,
+): Promise<string> {
   return getSignedUrl(
     s3(),
     new GetObjectCommand({ Bucket: bucket()!, Key: key }),
-    { expiresIn: S3_SIGNED_URL_TTL },
+    { expiresIn },
   );
+}
+
+/**
+ * Tarayıcıdan doğrudan bucket'a yükleme (büyük videolar sunucudan geçmez).
+ * Bucket CORS'unda panel origin'i için PUT izni gerekir.
+ */
+export async function s3SignedPutUrl(
+  key: string,
+  contentType: string,
+  expiresIn = 3600,
+): Promise<string> {
+  return getSignedUrl(
+    s3(),
+    new PutObjectCommand({
+      Bucket: bucket()!,
+      Key: key,
+      ContentType: contentType,
+      CacheControl: "private, max-age=31536000, immutable",
+    }),
+    { expiresIn },
+  );
+}
+
+/** Nesne boyutu / türü; yoksa null. */
+export async function s3Head(
+  key: string,
+): Promise<{ size: number; contentType: string | null } | null> {
+  try {
+    const res = await s3().send(
+      new HeadObjectCommand({ Bucket: bucket()!, Key: key }),
+    );
+    return { size: Number(res.ContentLength ?? 0), contentType: res.ContentType ?? null };
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      .$metadata?.httpStatusCode;
+    if (status === 403 || status === 404) return null;
+    throw err;
+  }
 }

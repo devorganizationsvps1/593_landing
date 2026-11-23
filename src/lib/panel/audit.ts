@@ -17,7 +17,8 @@ export type AuditEntity =
   | "backup"
   | "notification"
   | "office_shift"
-  | "server";
+  | "server"
+  | "social_account";
 
 type AuditSession = {
   user: { id?: string | null; email?: string | null };

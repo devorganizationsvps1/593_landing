@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/panel/StatusBadge";
 import TenantSettingsForm from "@/components/panel/TenantSettingsForm";
 import BrandSettingsDisclosure from "@/components/panel/BrandSettingsDisclosure";
 import BrandStatusExplainer from "@/components/panel/BrandStatusExplainer";
+import BrandSocialAccounts from "@/components/panel/BrandSocialAccounts";
 import { PanelTable } from "@/components/panel/ui";
 import { prisma } from "@/lib/db";
 import {
@@ -42,6 +43,7 @@ import { resolvePanelDateRange } from "@/lib/panel/period";
 import { loadTenantSettingsInitial } from "@/lib/panel/tenant-settings";
 import { loadTenantStatus } from "@/lib/panel/tenant-status";
 import { useMockPanelData } from "@/lib/integrations/tokens";
+import { serializeAccount } from "@/lib/social/state";
 import type { MockSyncJob } from "@/lib/panel/mock-data";
 
 const SYNC_LABEL = {
@@ -287,6 +289,14 @@ export default async function BrandDetailPage({ params, searchParams }: Props) {
         [],
       ];
   const disabledIntegrations = ownerRow?.disabledIntegrations ?? [];
+  const socialAccounts = existsInDb
+    ? (
+        await prisma.socialAccount.findMany({
+          where: { tenantId: bundle.tenant.id },
+          orderBy: { platform: "asc" },
+        })
+      ).map(serializeAccount)
+    : [];
   const tenantStatus = bundle.tenant.visible
     ? await loadTenantStatus(bundle, budgetPlan)
     : null;
@@ -530,6 +540,14 @@ export default async function BrandDetailPage({ params, searchParams }: Props) {
             gtm: bundle.tenant.mapping.gtmContainerId ?? null,
             gsc: bundle.tenant.mapping.gscSiteUrl ?? null,
           }}
+        />
+      ) : null}
+
+      {existsInDb ? (
+        <BrandSocialAccounts
+          tenantSlug={bundle.tenant.slug}
+          initial={socialAccounts}
+          canEdit={can(session.user.role, "brands.edit")}
         />
       ) : null}
 
