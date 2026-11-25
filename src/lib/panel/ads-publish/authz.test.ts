@@ -19,22 +19,31 @@ describe("(d) authz — admin panel, no membership gate for team edit", () => {
     packageFind.mockReset();
   });
 
-  it("team can edit any tenant without membership row", async () => {
+  it("allowlist team (Muhammet) can edit any tenant without membership row", async () => {
     await expect(
       assertCanEditTenant(
-        { id: "u1", name: "Ali", email: "a@x", role: "team" },
+        { id: "u1", name: "Muhammet", email: "muhammet@x", role: "team" },
         "t1",
       ),
     ).resolves.toBeUndefined();
   });
 
-  it("admin can edit any tenant", async () => {
+  it("non-allowlist team cannot edit", async () => {
+    await expect(
+      assertCanEditTenant(
+        { id: "u1", name: "Ali", email: "a@x", role: "team" },
+        "t1",
+      ),
+    ).rejects.toMatchObject({ code: "not_approver" });
+  });
+
+  it("non-allowlist admin cannot edit", async () => {
     await expect(
       assertCanEditTenant(
         { id: "a1", name: "Admin", email: "a@x", role: "admin" },
         "t1",
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({ code: "not_approver" });
   });
 
   it("client cannot edit", async () => {
@@ -53,7 +62,7 @@ describe("(d) authz — admin panel, no membership gate for team edit", () => {
     });
     await expect(
       assertCanApprovePackage({
-        actor: { id: "u1", name: "Hakan", email: "h@x", role: "admin" },
+        actor: { id: "u1", name: "Muhammet", email: "muhammet@x", role: "admin" },
         packageId: "p1",
       }),
     ).rejects.toMatchObject({ code: "self_approve" });
@@ -67,6 +76,7 @@ describe("(d) authz — admin panel, no membership gate for team edit", () => {
       "utf8",
     );
     expect(src).not.toMatch(/membership\.findFirst/);
-    expect(src).toMatch(/role === "team"/);
+    expect(src).toMatch(/canAccessAdsPublish/);
+    expect(src).toMatch(/role !== "team"/);
   });
 });

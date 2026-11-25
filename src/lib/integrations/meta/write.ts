@@ -145,15 +145,19 @@ export async function fetchLiveAdSnapshot(adId: string): Promise<{
   name: string;
   status: string;
   effective_status?: string;
+  configured_status?: string;
+  ad_review_feedback?: unknown;
   creative?: { id?: string };
 }> {
   const token = getMetaSystemUserToken();
-  const url = `${GRAPH}/${adId}?fields=id,name,status,effective_status,creative{id}&access_token=${encodeURIComponent(token)}`;
+  const url = `${GRAPH}/${adId}?fields=id,name,status,effective_status,configured_status,ad_review_feedback,creative{id}&access_token=${encodeURIComponent(token)}`;
   const { res, json } = await graphFetch<{
     id?: string;
     name?: string;
     status?: string;
     effective_status?: string;
+    configured_status?: string;
+    ad_review_feedback?: unknown;
     creative?: { id?: string };
     error?: { message?: string };
   }>(url);
@@ -168,8 +172,109 @@ export async function fetchLiveAdSnapshot(adId: string): Promise<{
     name: json.name || json.id,
     status: json.status || "",
     effective_status: json.effective_status,
+    configured_status: json.configured_status,
+    ad_review_feedback: json.ad_review_feedback,
     creative: json.creative,
   };
+}
+
+/**
+ * K2a geniş okuma — Marketing API AdCreative fields (v25–v27).
+ * object_story_spec tam alt ağaç; asset_feed / DOF / IG / crops dahil.
+ */
+export const CREATIVE_EDIT_FIELDS = [
+  "id",
+  "name",
+  "account_id",
+  "actor_id",
+  "url_tags",
+  "object_story_id",
+  "effective_object_story_id",
+  "image_hash",
+  "image_crops",
+  "image_url",
+  "video_id",
+  "object_type",
+  "instagram_user_id",
+  "instagram_permalink_url",
+  "effective_instagram_media_id",
+  "degrees_of_freedom_spec",
+  "asset_feed_spec",
+  "authorization_category",
+  "use_page_actor_override",
+  "applink_treatment",
+  "platform_customizations",
+  "product_set_id",
+  "template_url",
+  "template_url_spec",
+  "call_to_action_type",
+  "thumbnail_url",
+  "status",
+  "object_story_spec",
+].join(",");
+
+export type LiveCreativeSnapshot = Record<string, unknown> & {
+  id: string;
+  name?: string;
+  url_tags?: string | null;
+  object_story_id?: string | null;
+  effective_object_story_id?: string | null;
+  image_hash?: string | null;
+  video_id?: string | null;
+  object_type?: string | null;
+  instagram_user_id?: string | null;
+  object_story_spec?: Record<string, unknown> | null;
+  asset_feed_spec?: unknown;
+  degrees_of_freedom_spec?: unknown;
+  product_set_id?: string | null;
+};
+
+export async function fetchLiveCreativeById(
+  creativeId: string,
+): Promise<LiveCreativeSnapshot> {
+  const token = getMetaSystemUserToken();
+  const url = `${GRAPH}/${creativeId}?fields=${CREATIVE_EDIT_FIELDS}&access_token=${encodeURIComponent(token)}`;
+  const { res, json } = await graphFetch<
+    LiveCreativeSnapshot & { error?: { message?: string } }
+  >(url);
+  if (!res.ok || json.error || !json.id) {
+    throw new MetaGraphError(
+      json.error?.message || `Meta creative snapshot ${res.status}`,
+      res.status,
+    );
+  }
+  return json;
+}
+
+/** Reklamın bağlı kreatifi — ad → creative id → detay. */
+export async function fetchLiveAdCreative(adId: string): Promise<{
+  adId: string;
+  creative: LiveCreativeSnapshot;
+}> {
+  const ad = await fetchLiveAdSnapshot(adId);
+  const creativeId = ad.creative?.id;
+  if (!creativeId) {
+    throw new MetaGraphError("Reklamda kreatif kimliği yok", 400);
+  }
+  const creative = await fetchLiveCreativeById(creativeId);
+  return { adId: ad.id, creative };
+}
+
+export async function createAdCreative(
+  adAccountId: string,
+  body: Record<string, unknown>,
+  opts?: MetaWriteContext,
+) {
+  const account = actId(adAccountId);
+  return graphPost<{ id?: string }>(`${account}/adcreatives`, body, opts);
+}
+
+export async function bindAdCreative(
+  adId: string,
+  creativeId: string,
+  opts?: MetaWriteContext,
+) {
+  return graphPost(adId, { creative: { creative_id: creativeId } }, opts);
 }
 
 export async function fetchLiveAdsetSnapshot(adsetId: string): Promise<{

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getIstanbulTodayYmd } from "@/lib/date/now";
 import { addDaysYmd } from "@/lib/date/tr";
+import { canAccessAdsPublish } from "@/lib/panel/ads-publish/access-policy";
 import { getTenantBundle } from "@/lib/panel/data";
 import type { MockCampaignMetric } from "@/lib/panel/mock-data";
+import { prisma } from "@/lib/db";
 import { requireStaffApi } from "@/lib/panel/staff-auth";
 
 export const runtime = "nodejs";
@@ -35,8 +37,21 @@ export async function GET(
   request: Request,
   ctx: { params: Promise<{ slug: string }> },
 ) {
-  const { error } = await requireStaffApi();
-  if (error) return error;
+  const { error, session } = await requireStaffApi();
+  if (error || !session) return error;
+
+  const self = await prisma.user.findFirst({
+    where: session.user.email
+      ? { email: session.user.email }
+      : { id: session.user.id ?? "" },
+    select: { name: true, email: true, role: true },
+  });
+  if (!canAccessAdsPublish(self)) {
+    return NextResponse.json(
+      { error: "Performans şimdilik yalnızca allowlist kullanıcısına açık" },
+      { status: 403 },
+    );
+  }
 
   const { slug: raw } = await ctx.params;
   const slug = decodeURIComponent(raw).trim().toLowerCase();

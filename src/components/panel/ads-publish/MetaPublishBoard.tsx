@@ -30,6 +30,15 @@ import {
   type AdChangePackageListItem,
 } from "@/lib/panel/ads-publish/types";
 import type { ApprovalPreview } from "@/lib/panel/ads-publish/approval-preview";
+import {
+  assertCreativeEditAllowed,
+  buildCreativeFieldChanges,
+  buildCreativePlan,
+  type CreativeEditMode,
+  type CreativeTextSnapshot,
+} from "@/lib/panel/ads-publish/creative-edit";
+import { CREATIVE_SHAPE_LABEL } from "@/lib/panel/ads-publish/creative-shape";
+import { reviewStatusLabel } from "@/lib/panel/ads-publish/orphan-creatives";
 
 type Brand = {
   id: string;
@@ -72,6 +81,17 @@ const EMPTY_EDITOR: EditorState = {
   notes: "",
 };
 
+function snapshotToEditor(s: CreativeTextSnapshot): Partial<EditorState> {
+  return {
+    primaryText: s.primaryText,
+    headline: s.headline,
+    description: s.description,
+    cta: s.cta,
+    link: s.link,
+    urlTags: s.urlTags,
+  };
+}
+
 export default function MetaPublishBoard({
   actorName,
   brands,
@@ -108,6 +128,23 @@ export default function MetaPublishBoard({
   const [approvePreview, setApprovePreview] = useState<ApprovalPreview | null>(
     null,
   );
+  const [creativeSnap, setCreativeSnap] = useState<CreativeTextSnapshot | null>(
+    null,
+  );
+  const [creativeId, setCreativeId] = useState<string | null>(null);
+  const [creativeFp, setCreativeFp] = useState<string | null>(null);
+  const [creativeMode, setCreativeMode] = useState<CreativeEditMode | null>(
+    null,
+  );
+  const [creativeShape, setCreativeShape] = useState<string | null>(null);
+  const [creativeLocked, setCreativeLocked] = useState(false);
+  const [creativeLockReason, setCreativeLockReason] = useState<string | null>(
+    null,
+  );
+  const [creativeLoadError, setCreativeLoadError] = useState<string | null>(
+    null,
+  );
+  const [creativeLoading, setCreativeLoading] = useState(false);
 
   const selectedBrand = useMemo(
     () => brands.find((b) => b.id === tenantId) ?? null,
@@ -153,6 +190,14 @@ export default function MetaPublishBoard({
     };
     setEditor(next);
     setBaseline(next);
+    setCreativeSnap(null);
+    setCreativeId(null);
+    setCreativeFp(null);
+    setCreativeMode(null);
+    setCreativeShape(null);
+    setCreativeLocked(false);
+    setCreativeLockReason(null);
+    setCreativeLoadError(null);
     if (selectedAd) {
       setTitle(
         `${selectedBrand?.name ?? "Marka"} · ${selectedAd.adName || selectedAd.adId}`,
@@ -161,12 +206,84 @@ export default function MetaPublishBoard({
   }, [selectedAd?.adId, selectedBrand?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!selectedAd || !tenantId) return;
+    let cancelled = false;
+    setCreativeLoading(true);
+    setCreativeLoadError(null);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/panel/ads-publish/creative?tenantId=${encodeURIComponent(tenantId)}&adId=${encodeURIComponent(selectedAd.adId)}`,
+        );
+        const json = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          creativeId?: string;
+          fingerprint?: string;
+          defaultMode?: CreativeEditMode | null;
+          shape?: string;
+          shapeLabel?: string;
+          k2aEditable?: boolean;
+          lockReason?: string | null;
+          snapshot?: CreativeTextSnapshot;
+        };
+        if (cancelled) return;
+        if (!res.ok || !json.snapshot) {
+          setCreativeLoadError(json.error || "Kreatif okunamadı");
+          return;
+        }
+        setCreativeSnap(json.snapshot);
+        setCreativeId(json.creativeId || null);
+        setCreativeFp(json.fingerprint || null);
+        setCreativeShape(json.shape || json.snapshot.shape || null);
+        const editable = json.k2aEditable !== false && Boolean(json.defaultMode);
+        setCreativeLocked(!editable);
+        setCreativeLockReason(
+          editable ? null : json.lockReason || "unsupported_creative_shape",
+        );
+        if (json.defaultMode) {
+          setCreativeMode(json.defaultMode);
+        } else {
+          setCreativeMode(null);
+        }
+        const patch = snapshotToEditor(json.snapshot);
+        setEditor((e) => ({ ...e, ...patch }));
+        setBaseline((e) => ({ ...e, ...patch }));
+        if (!editable) {
+          setCreativeLoadError(json.lockReason || json.error || null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCreativeLoadError(
+            err instanceof Error ? err.message : "Kreatif okunamadı",
+          );
+        }
+      } finally {
+        if (!cancelled) setCreativeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAd?.adId, tenantId]);
+
+  useEffect(() => {
     if (!selectedCard) return;
     const thumb = selectedCard.images[0];
     if (thumb) {
       setEditor((e) => ({ ...e }));
     }
   }, [selectedCard?.cardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const effectiveCreativeMode: CreativeEditMode | null = useMemo(() => {
+    if (creativeLocked || !creativeSnap || !creativeMode) return null;
+    return creativeMode;
+  }, [creativeSnap, creativeMode, creativeLocked]);
+
+  const textFieldsLocked =
+    creativeLocked ||
+    effectiveCreativeMode === "url_tags_only" ||
+    !effectiveCreativeMode;
 
   const brandPackages = packages.filter((p) => p.tenantId === tenantId);
   const pending = brandPackages.filter((p) => p.status === "pending");
@@ -224,15 +341,35 @@ export default function MetaPublishBoard({
     setEditor((prev) => ({ ...prev, [key]: value }));
   }
 
+  function buildProposedSnapshot(): CreativeTextSnapshot | null {
+    if (!creativeSnap) return null;
+    return {
+      ...creativeSnap,
+      primaryText: editor.primaryText.trim(),
+      headline: editor.headline.trim(),
+      description: editor.description.trim(),
+      cta: editor.cta.trim().toUpperCase(),
+      link: editor.link.trim(),
+      urlTags: editor.urlTags.trim(),
+    };
+  }
+
   function buildChanges(): AdChangeField[] {
+    const changes: AdChangeField[] = [];
+    const mode = effectiveCreativeMode;
+    const proposedSnap = buildProposedSnapshot();
+    if (mode && creativeSnap && proposedSnap) {
+      changes.push(
+        ...buildCreativeFieldChanges({
+          current: creativeSnap,
+          proposed: proposedSnap,
+          mode,
+        }),
+      );
+    }
+
     const pairs: Array<{ field: string; label: string; key: keyof EditorState }> =
       [
-        { field: "creative.primary_text", label: "Ana metin", key: "primaryText" },
-        { field: "creative.headline", label: "Başlık", key: "headline" },
-        { field: "creative.description", label: "Açıklama", key: "description" },
-        { field: "creative.cta", label: "CTA", key: "cta" },
-        { field: "creative.link", label: "Hedef URL", key: "link" },
-        { field: "creative.url_tags", label: "UTM", key: "urlTags" },
         { field: "adset.targeting", label: "Hedefleme", key: "targeting" },
         { field: "adset.placements", label: "Yerleşimler", key: "placements" },
         { field: "ad.status", label: "Reklam durumu", key: "adStatus" },
@@ -247,7 +384,6 @@ export default function MetaPublishBoard({
               },
             ]),
       ];
-    const changes: AdChangeField[] = [];
     for (const p of pairs) {
       const proposed = editor[p.key].trim();
       const current = baseline[p.key].trim();
@@ -259,19 +395,43 @@ export default function MetaPublishBoard({
         proposed,
       });
     }
-    if (selectedCard?.images[0]) {
-      const url = selectedCard.images[0];
-      const currentMedia = selectedAd?.imageUrl || selectedAd?.thumbnailUrl || null;
-      if (url !== currentMedia) {
-        changes.push({
-          field: "creative.media",
-          label: "Görsel / video",
-          current: currentMedia,
-          proposed: url,
-        });
-      }
-    }
+    // K2b: creative.media bu sürümde paketlenmez
     return changes;
+  }
+
+  function buildCreativePayload() {
+    const mode = effectiveCreativeMode;
+    const proposedSnap = buildProposedSnapshot();
+    if (!mode || !creativeSnap || !proposedSnap || !creativeId || !creativeFp) {
+      return null;
+    }
+    const creativeChanges = buildCreativeFieldChanges({
+      current: creativeSnap,
+      proposed: proposedSnap,
+      mode,
+    });
+    if (creativeChanges.length === 0 && mode !== "revert_bind") return null;
+    assertCreativeEditAllowed({
+      mode,
+      current: creativeSnap,
+      proposed: proposedSnap,
+    });
+    return {
+      creative: {
+        mode,
+        shape: creativeSnap.shape,
+        currentCreativeId: creativeId,
+        current: creativeSnap,
+        proposed: proposedSnap,
+        currentFingerprint: creativeFp,
+      },
+      plan: [
+        ...buildCreativePlan(mode),
+        ...buildChanges()
+          .filter((c) => !c.field.startsWith("creative."))
+          .map((c) => ({ key: c.field, label: c.label })),
+      ],
+    };
   }
 
   function buildMedia(): AdChangeMedia[] {
@@ -300,9 +460,16 @@ export default function MetaPublishBoard({
       setMessage("Kampanya kimliği yok (unknown) — paket oluşturulamaz.");
       return;
     }
+    let creativeBundle: ReturnType<typeof buildCreativePayload> = null;
+    try {
+      creativeBundle = buildCreativePayload();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Kreatif paketi geçersiz");
+      return;
+    }
     const changes = buildChanges();
-    if (changes.length === 0 && !selectedCard) {
-      setMessage("En az bir alan değiştirin veya hazır kreatif seçin.");
+    if (changes.length === 0 && !creativeBundle) {
+      setMessage("En az bir alan değiştirin (K2a: metin / URL / UTM).");
       return;
     }
     setBusy(andSubmit ? "submit" : "save");
@@ -317,6 +484,8 @@ export default function MetaPublishBoard({
         adsetId: selectedAd?.adsetId,
         adId: selectedAd?.adId,
         changes,
+        plan: creativeBundle?.plan,
+        creative: creativeBundle?.creative,
         media: buildMedia(),
         notes: editor.notes.trim(),
         source: selectedCard
@@ -345,7 +514,10 @@ export default function MetaPublishBoard({
     }
   }
 
-  async function act(id: string, action: "submit" | "approve" | "reject") {
+  async function act(
+    id: string,
+    action: "submit" | "approve" | "reject" | "revert_creative",
+  ) {
     setBusy(`${action}:${id}`);
     setMessage(null);
     try {
@@ -366,6 +538,11 @@ export default function MetaPublishBoard({
       }
       await postJson(`/api/panel/ads-publish/packages/${id}`, { action });
       startTransition(() => router.refresh());
+      if (action === "revert_creative") {
+        setMessage(
+          "Geri alma taslağı oluşturuldu — onaya gönderip ayrı onaylayın.",
+        );
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "İşlem başarısız");
     } finally {
@@ -698,6 +875,46 @@ export default function MetaPublishBoard({
           <div className="mt-4 space-y-3">
             {tab === "creative" ? (
               <>
+                {creativeLoading ? (
+                  <p className="text-xs text-zinc-500">Canlı kreatif yükleniyor…</p>
+                ) : null}
+                {creativeLoadError ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {creativeLoadError}
+                  </p>
+                ) : null}
+                {creativeSnap || creativeShape ? (
+                  <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    <p>
+                      Tür:{" "}
+                      <span className="font-medium text-zinc-900">
+                        {creativeShape
+                          ? CREATIVE_SHAPE_LABEL[
+                              creativeShape as keyof typeof CREATIVE_SHAPE_LABEL
+                            ] || creativeShape
+                          : "—"}
+                      </span>
+                      {effectiveCreativeMode === "url_tags_only"
+                        ? " · K2a: yalnızca UTM"
+                        : effectiveCreativeMode === "spec_patch"
+                          ? " · K2a: metin/URL/UTM"
+                          : creativeLocked
+                            ? " · K2a kilitli"
+                            : ""}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
+                      creative {creativeId}
+                      {creativeSnap?.objectStoryId
+                        ? ` · post ${creativeSnap.objectStoryId}`
+                        : ""}
+                    </p>
+                  </div>
+                ) : null}
+                {creativeLocked && creativeLockReason ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                    {creativeLockReason}
+                  </p>
+                ) : null}
                 {selectedCard ? (
                   <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
                     <span className="relative size-12 overflow-hidden rounded-lg bg-zinc-200">
@@ -715,45 +932,73 @@ export default function MetaPublishBoard({
                         Seçili kreatif: {selectedCard.title}
                       </p>
                       <p className="text-[11px] text-zinc-500">
-                        Durum panosundan · {selectedCard.columnName}
+                        Durum panosundan · medya K2b’de bağlanır
                       </p>
                     </div>
                   </div>
                 ) : null}
-                <Field
-                  label="Ana metin"
-                  value={editor.primaryText}
-                  onChange={(v) => setField("primaryText", v)}
-                  multiline
-                />
-                <Field
-                  label="Başlık"
-                  value={editor.headline}
-                  onChange={(v) => setField("headline", v)}
-                />
-                <Field
-                  label="Açıklama"
-                  value={editor.description}
-                  onChange={(v) => setField("description", v)}
-                />
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field
-                    label="CTA"
-                    value={editor.cta}
-                    onChange={(v) => setField("cta", v)}
-                    placeholder="LEARN_MORE, SHOP_NOW…"
-                  />
-                  <Field
-                    label="Hedef URL"
-                    value={editor.link}
-                    onChange={(v) => setField("link", v)}
-                  />
+                  <div className="space-y-3 rounded-xl border border-zinc-100 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                      Mevcut
+                    </p>
+                    <ReadOnlyLine label="Ana metin" value={baseline.primaryText} />
+                    <ReadOnlyLine label="Başlık" value={baseline.headline} />
+                    <ReadOnlyLine label="Açıklama" value={baseline.description} />
+                    <ReadOnlyLine label="CTA" value={baseline.cta} />
+                    <ReadOnlyLine label="URL" value={baseline.link} />
+                    <ReadOnlyLine label="UTM" value={baseline.urlTags} />
+                  </div>
+                  <div className="space-y-3 rounded-xl border border-zinc-100 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                      Önerilen
+                    </p>
+                    <Field
+                      label="Ana metin"
+                      value={editor.primaryText}
+                      onChange={(v) => setField("primaryText", v)}
+                      multiline
+                      disabled={textFieldsLocked}
+                    />
+                    <Field
+                      label="Başlık"
+                      value={editor.headline}
+                      onChange={(v) => setField("headline", v)}
+                      disabled={textFieldsLocked}
+                    />
+                    <Field
+                      label="Açıklama"
+                      value={editor.description}
+                      onChange={(v) => setField("description", v)}
+                      disabled={textFieldsLocked}
+                    />
+                    <Field
+                      label="CTA"
+                      value={editor.cta}
+                      onChange={(v) => setField("cta", v)}
+                      placeholder="LEARN_MORE, SHOP_NOW…"
+                      disabled={textFieldsLocked}
+                    />
+                    <Field
+                      label="Hedef URL"
+                      value={editor.link}
+                      onChange={(v) => setField("link", v)}
+                      disabled={textFieldsLocked}
+                    />
+                    <Field
+                      label="UTM / url_tags"
+                      value={editor.urlTags}
+                      onChange={(v) => setField("urlTags", v)}
+                      disabled={creativeLocked || !effectiveCreativeMode}
+                    />
+                  </div>
                 </div>
-                <Field
-                  label="UTM / url_tags"
-                  value={editor.urlTags}
-                  onChange={(v) => setField("urlTags", v)}
-                />
+                {effectiveCreativeMode === "url_tags_only" && !creativeLocked ? (
+                  <p className="text-xs text-zinc-500">
+                    Mevcut gönderi: K2a yalnızca UTM (url_tags) değiştirir;
+                    gönderi ve etkileşimler korunur.
+                  </p>
+                ) : null}
               </>
             ) : null}
 
@@ -889,9 +1134,20 @@ export default function MetaPublishBoard({
         empty="Uygulanan paket yok."
         items={history}
         busy={busy}
-        actions={[]}
+        actions={["revert_creative"]}
         onAct={act}
       />
+    </div>
+  );
+}
+
+function ReadOnlyLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="text-sm">
+      <p className="text-[11px] font-medium text-zinc-500">{label}</p>
+      <p className="mt-0.5 whitespace-pre-wrap break-words text-zinc-700">
+        {value || "—"}
+      </p>
     </div>
   );
 }
@@ -902,29 +1158,33 @@ function Field({
   onChange,
   multiline,
   placeholder,
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   multiline?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block text-xs font-medium text-zinc-500">{label}</span>
       {multiline ? (
         <textarea
-          className="min-h-[88px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-[#141111] placeholder:text-zinc-400 focus:border-[#141111] focus:outline-none"
+          className="min-h-[88px] w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-[#141111] placeholder:text-zinc-400 focus:border-[#141111] focus:outline-none disabled:bg-zinc-50 disabled:text-zinc-400"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          disabled={disabled}
         />
       ) : (
         <input
-          className={`${fieldClass} w-full rounded-xl`}
+          className={`${fieldClass} w-full rounded-xl disabled:bg-zinc-50 disabled:text-zinc-400`}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          disabled={disabled}
         />
       )}
     </label>
@@ -949,7 +1209,7 @@ function ApprovalPreviewModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="approve-preview-title"
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-xl"
       >
         <h3 id="approve-preview-title" className="text-base font-semibold">
           Onay önizlemesi
@@ -1008,6 +1268,25 @@ function ApprovalPreviewModal({
             . Onay engellendi — sync veya Meta erişimini kontrol edin.
           </p>
         ) : null}
+        {preview.warnings?.length ? (
+          <ul className="mt-3 list-disc space-y-1 rounded-xl border border-amber-200 bg-amber-50 px-5 py-2 text-sm text-amber-950">
+            {preview.warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        ) : null}
+        {preview.creativeCompare ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <CreativeCompareColumn
+              title="Mevcut"
+              snap={preview.creativeCompare.current}
+            />
+            <CreativeCompareColumn
+              title="Önerilen"
+              snap={preview.creativeCompare.proposed}
+            />
+          </div>
+        ) : null}
         <ul className="mt-4 divide-y divide-zinc-100 rounded-xl border border-zinc-100">
           {preview.changes.map((c) => (
             <li key={c.field} className="px-3 py-2 text-sm">
@@ -1057,6 +1336,35 @@ function ApprovalPreviewModal({
   );
 }
 
+function CreativeCompareColumn({
+  title,
+  snap,
+}: {
+  title: string;
+  snap: {
+    primaryText?: string;
+    headline?: string;
+    description?: string;
+    cta?: string;
+    link?: string;
+    urlTags?: string;
+  };
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-100 p-3 text-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+        {title}
+      </p>
+      <ReadOnlyLine label="Ana metin" value={snap.primaryText || ""} />
+      <ReadOnlyLine label="Başlık" value={snap.headline || ""} />
+      <ReadOnlyLine label="Açıklama" value={snap.description || ""} />
+      <ReadOnlyLine label="CTA" value={snap.cta || ""} />
+      <ReadOnlyLine label="URL" value={snap.link || ""} />
+      <ReadOnlyLine label="UTM" value={snap.urlTags || ""} />
+    </div>
+  );
+}
+
 function PackageGroup({
   title,
   empty,
@@ -1069,8 +1377,11 @@ function PackageGroup({
   empty: string;
   items: AdChangePackageListItem[];
   busy: string | null;
-  actions: Array<"submit" | "approve" | "reject">;
-  onAct: (id: string, action: "submit" | "approve" | "reject") => void;
+  actions: Array<"submit" | "approve" | "reject" | "revert_creative">;
+  onAct: (
+    id: string,
+    action: "submit" | "approve" | "reject" | "revert_creative",
+  ) => void;
 }) {
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -1101,6 +1412,14 @@ function PackageGroup({
                 </p>
                 {p.outcomeNote ? (
                   <p className="mt-0.5 text-xs text-amber-700">{p.outcomeNote}</p>
+                ) : null}
+                {p.metaReviewStatus ? (
+                  <p className="mt-0.5 text-xs text-zinc-600">
+                    İnceleme: {reviewStatusLabel(p.metaReviewStatus)}
+                    {p.metaReviewFeedback
+                      ? ` — ${p.metaReviewFeedback.slice(0, 120)}`
+                      : ""}
+                  </p>
                 ) : null}
               </div>
               {actions.length ? (
@@ -1133,6 +1452,17 @@ function PackageGroup({
                       onClick={() => onAct(p.id, "reject")}
                     >
                       Reddet
+                    </button>
+                  ) : null}
+                  {actions.includes("revert_creative") &&
+                  (p.status === "applied" || p.status === "partial") ? (
+                    <button
+                      type="button"
+                      className={btnSecondary}
+                      disabled={busy !== null}
+                      onClick={() => onAct(p.id, "revert_creative")}
+                    >
+                      Önceki kreatife dön
                     </button>
                   ) : null}
                 </div>

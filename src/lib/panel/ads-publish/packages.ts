@@ -13,6 +13,45 @@ import {
   assertCanApprovePackage,
   assertCanEditTenant,
 } from "@/lib/panel/ads-publish/authz";
+import {
+  assertCreateBodyPreservesUnchangedFields,
+  assertCreativeEditAllowed,
+  buildAdCreativeCreateBody,
+  getCreativeEditMeta,
+  UnsupportedCreativeShapeError,
+  type CreativeTextSnapshot,
+} from "@/lib/panel/ads-publish/creative-edit";
+
+function assertK2aCreativePayload(payload: AdChangePayload): void {
+  const meta = getCreativeEditMeta(payload);
+  if (!meta) return;
+  if (meta.mode === "revert_bind") return;
+  const current = meta.current as unknown as CreativeTextSnapshot;
+  const proposed = meta.proposed as unknown as CreativeTextSnapshot;
+  try {
+    assertCreativeEditAllowed({
+      mode: meta.mode,
+      current,
+      proposed,
+    });
+    const body = buildAdCreativeCreateBody({
+      mode: meta.mode,
+      current,
+      proposed,
+      name: "validate",
+    });
+    assertCreateBodyPreservesUnchangedFields({
+      mode: meta.mode,
+      current,
+      createBody: body,
+    });
+  } catch (err) {
+    if (err instanceof UnsupportedCreativeShapeError) {
+      throw new Error(`${err.code}: ${err.message}`);
+    }
+    throw err;
+  }
+}
 
 function outcomeNoteFromJobs(
   jobs?: Array<{
@@ -58,6 +97,8 @@ function serializeListItem(row: {
   currentVersion: number;
   createdAt: Date;
   updatedAt: Date;
+  metaReviewStatus?: string;
+  metaReviewFeedback?: string;
   tenant: { id: string; name: string; slug: string };
   createdBy: { name: string | null; email: string } | null;
   jobs?: Array<{
@@ -89,6 +130,8 @@ function serializeListItem(row: {
       ? "Takıldı — kurtarma taraması bekleniyor"
       : outcomeNoteFromJobs(row.jobs),
     isStuck: stuck,
+    metaReviewStatus: row.metaReviewStatus || "",
+    metaReviewFeedback: row.metaReviewFeedback || "",
   };
 }
 
@@ -150,6 +193,7 @@ export async function createDraftPackage(opts: {
     metaCurrency: tenant.metaCurrency,
   });
   await assertTargetOwnership({ tenantId: tenant.id, payload: opts.payload });
+  assertK2aCreativePayload(opts.payload);
 
   const created = await prisma.adChangePackage.create({
     data: {
@@ -224,6 +268,7 @@ export async function updateDraftPackage(opts: {
     tenantId: pack.tenantId,
     payload: opts.payload,
   });
+  assertK2aCreativePayload(opts.payload);
 
   const nextVersion = pack.currentVersion + 1;
   await prisma.adChangePackageVersion.create({
@@ -445,4 +490,98 @@ export async function decidePackage(opts: {
     },
   });
   return serializeListItem(latest);
+}
+
+/**
+ * Uygulanmış K2a paketinden eski creative_id’ye dönüş — ayrı onaylı işlem.
+ */
+export async function createCreativeRevertPackage(opts: {
+  actor: AdsPublishActor;
+  sourcePackageId: string;
+}): Promise<AdChangePackageListItem> {
+  const source = await prisma.adChangePackage.findFirst({
+    where: { id: opts.sourcePackageId },
+    include: {
+      tenant: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          metaAccountId: true,
+          currency: true,
+          metaCurrency: true,
+        },
+      },
+    },
+  });
+  if (!source) throw new Error("Kaynak paket bulunamadı");
+  await assertCanEditTenant(opts.actor, source.tenantId);
+
+  const version = await prisma.adChangePackageVersion.findFirst({
+    where: { packageId: source.id, version: source.currentVersion },
+  });
+  if (!version) throw new Error("Kaynak sürüm yok");
+  const srcPayload = (version.payload ?? {}) as AdChangePayload;
+  const creative = srcPayload.creative;
+  if (!creative?.currentCreativeId) {
+    throw new Error("Bu pakette geri alınacak kreatif kimliği yok");
+  }
+
+  const job = await prisma.adChangeJob.findFirst({
+    where: {
+      packageId: source.id,
+      status: { in: ["applied", "partial", "simulated"] },
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      steps: { where: { kind: "creative.bind" }, orderBy: { sortOrder: "asc" } },
+    },
+  });
+  const bindResult = (job?.steps[0]?.result ?? {}) as {
+    previousCreativeId?: string;
+    newCreativeId?: string;
+  };
+  const restoreId =
+    bindResult.previousCreativeId || creative.currentCreativeId;
+  const currentId =
+    creative.newCreativeId ||
+    bindResult.newCreativeId ||
+    creative.currentCreativeId;
+  if (!restoreId || restoreId === currentId) {
+    throw new Error("Geri alınacak önceki kreatif kimliği bulunamadı");
+  }
+
+  const payload: AdChangePayload = {
+    ...srcPayload,
+    rationale: {
+      ...srcPayload.rationale,
+      notes: `Geri alma: ${currentId} → ${restoreId}`,
+    },
+    changes: [
+      {
+        field: "creative.bind",
+        label: "Kreatif geri alma",
+        current: currentId,
+        proposed: restoreId,
+      },
+    ],
+    plan: [{ key: "creative.bind", label: "Önceki kreatife bağla" }],
+    media: [],
+    creative: {
+      mode: "revert_bind",
+      currentCreativeId: currentId,
+      restoreCreativeId: restoreId,
+      current: creative.proposed || creative.current,
+      proposed: creative.current,
+      currentFingerprint: creative.currentFingerprint,
+    },
+  };
+
+  return createDraftPackage({
+    actor: opts.actor,
+    tenantId: source.tenantId,
+    platform: source.platform,
+    title: `Geri al · ${source.title}`.slice(0, 120),
+    payload,
+  });
 }

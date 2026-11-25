@@ -23,6 +23,7 @@ export const STAFF_NAV_LINKS: PanelNavLink[] = [
   { href: "/board", label: "Durum" },
   { href: "/kampanyalar", label: "Kampanyalar" },
   { href: "/meta-yayin", label: "Meta yayın" },
+  { href: "/meta-sahipsiz", label: "Sahipsiz kreatif" },
   { href: "/google-analiz", label: "Google analiz" },
   { href: "/toplantilar", label: "Toplantılar" },
   { href: "/takvim", label: "Takvim" },
@@ -59,6 +60,7 @@ export function staffPageTitle(rawPath: string): string {
   if (matches(path, "/board")) return "Durum tablosu";
   if (matches(path, "/kampanyalar")) return "Aktif kampanyalar";
   if (matches(path, "/meta-yayin")) return "Meta yayın";
+  if (matches(path, "/meta-sahipsiz")) return "Sahipsiz kreatif";
   if (matches(path, "/google-analiz")) return "Google analiz";
   if (matches(path, "/toplantilar")) return "Toplantılar";
   if (matches(path, "/takvim")) return "İçerik takvimi";

@@ -1,7 +1,7 @@
 /**
  * (d) Paket edit / approve yetkisi — API tarafı (yalnızca admin/staff host).
- * - edit: admin ve team — tüm markalar (Membership şartı yok; marka paneli değil)
- * - approve: admin veya ADS_PUBLISH allowlist; oluşturan / son düzenleyen self-approve yok
+ * - edit/approve: ADS_PUBLISH allowlist (şimdilik Muhammet); Membership şartı yok
+ * - self-approve yok (oluşturan / son düzenleyen)
  * - client ve brand host: access.requireAdsPublishApi
  */
 import { prisma } from "@/lib/db";
@@ -30,8 +30,12 @@ export async function assertCanEditTenant(
   if (actor.role === "client") {
     throw new AuthzError("Müşteri rolü paket düzenleyemez", "client_forbidden");
   }
-  if (actor.role === "admin" || actor.role === "team") return;
-  throw new AuthzError("Bu API yalnızca ajans personeline açık", "client_forbidden");
+  if (actor.role !== "admin" && actor.role !== "team") {
+    throw new AuthzError("Bu API yalnızca ajans personeline açık", "client_forbidden");
+  }
+  if (!canAccessAdsPublish(actor)) {
+    throw new AuthzError("Düzenleme yetkisi yok (allowlist)", "not_approver");
+  }
 }
 
 export async function assertCanApprovePackage(opts: {
@@ -41,7 +45,7 @@ export async function assertCanApprovePackage(opts: {
   if (opts.actor.role === "client") {
     throw new AuthzError("Müşteri rolü onaylayamaz", "client_forbidden");
   }
-  if (opts.actor.role !== "admin" && !canAccessAdsPublish(opts.actor)) {
+  if (!canAccessAdsPublish(opts.actor)) {
     throw new AuthzError("Onay yetkisi yok (allowlist)", "not_approver");
   }
 

@@ -224,6 +224,7 @@ export default function AgencyBrandTable({
   hourlySync,
   results,
   staff,
+  canViewPerformance = false,
 }: {
   rows: BrandTableRow[];
   monthLabel: string;
@@ -233,6 +234,8 @@ export default function AgencyBrandTable({
   hourlySync: { running: boolean; lastSuccessAt: string | null };
   results: AgencyResults;
   staff: Array<{ id: string; label: string }>;
+  /** Marka Performans sekmesi — şimdilik yalnızca Muhammet allowlist. */
+  canViewPerformance?: boolean;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -584,6 +587,7 @@ export default function AgencyBrandTable({
                             daysInMonth={daysInMonth}
                             monthLabel={monthLabel}
                             currentHour={currentHour}
+                            canViewPerformance={canViewPerformance}
                           />
                           <button
                             type="button"

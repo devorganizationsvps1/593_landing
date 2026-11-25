@@ -40,7 +40,7 @@ export async function loadAdsPublishActor(session: {
   };
 }
 
-/** Sayfa: staff (admin/team). Onay UI allowlist’i ayrıca canAccessAdsPublish. */
+/** Sayfa: yalnızca ADS_PUBLISH allowlist (şimdilik Muhammet). */
 export async function requireAdsPublishPage() {
   const session = await auth();
   if (!session?.user) return { session: null, actor: null, denied: "login" as const };
@@ -49,11 +49,14 @@ export async function requireAdsPublishPage() {
   }
   const actor = await loadAdsPublishActor(session);
   if (!actor) return { session, actor: null, denied: "brands" as const };
+  if (!canAccessAdsPublish(actor)) {
+    return { session, actor: null, denied: "brands" as const };
+  }
   return {
     session,
     actor,
     denied: null,
-    canApprove: canAccessAdsPublish(actor),
+    canApprove: true,
   };
 }
 
@@ -95,6 +98,16 @@ export async function requireAdsPublishApi() {
       actor: null,
       error: NextResponse.json(
         { error: "Meta yayın API’si yalnızca ajans personeline açık" },
+        { status: 403 },
+      ),
+    };
+  }
+  if (!canAccessAdsPublish(actor)) {
+    return {
+      session: null,
+      actor: null,
+      error: NextResponse.json(
+        { error: "Meta yayın şimdilik yalnızca allowlist kullanıcısına açık" },
         { status: 403 },
       ),
     };

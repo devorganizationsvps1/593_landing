@@ -12,6 +12,7 @@ import {
 } from "@/lib/panel/ads-publish/budget-units";
 import { stableStringify } from "@/lib/panel/ads-publish/write-kinds";
 import {
+  fetchLiveAdCreative,
   fetchLiveAdSnapshot,
   fetchLiveAdsetSnapshot,
   fetchLiveCampaignSnapshot,
@@ -21,6 +22,14 @@ import {
   currencyMismatchMessage,
   resolveBudgetDisplayCurrency,
 } from "@/lib/panel/ads-publish/currency";
+import {
+  creativeFingerprint,
+  creativeSideEffectWarnings,
+  getCreativeEditMeta,
+  isK2aCreativeChangeField,
+  snapshotFromLiveCreative,
+  type CreativeTextSnapshot,
+} from "@/lib/panel/ads-publish/creative-edit";
 
 export type ApprovalPreviewChange = {
   field: string;
@@ -68,6 +77,15 @@ export type ApprovalPreview = {
   liveReadOk: boolean;
   liveReadError: string | null;
   lastSyncedAt: string | null;
+  /** K2a yan etki uyarıları */
+  warnings: string[];
+  /** K2a yan yana metin/URL/UTM */
+  creativeCompare: {
+    mode: string;
+    currentCreativeId: string;
+    current: CreativeTextSnapshot;
+    proposed: CreativeTextSnapshot;
+  } | null;
   /** İstemcinin approve’da geri göndermesi gereken özet imza. */
   fingerprint: string;
 };
@@ -90,6 +108,19 @@ function fingerprintOf(preview: Omit<ApprovalPreview, "fingerprint">): string {
     impact: preview.impact,
     changes: preview.changes,
     liveReadOk: preview.liveReadOk,
+    warnings: preview.warnings,
+    creativeCompare: preview.creativeCompare
+      ? {
+          mode: preview.creativeCompare.mode,
+          currentCreativeId: preview.creativeCompare.currentCreativeId,
+          currentFingerprint: creativeFingerprint(
+            preview.creativeCompare.current,
+          ),
+          proposedFingerprint: creativeFingerprint(
+            preview.creativeCompare.proposed,
+          ),
+        }
+      : null,
   };
   return createHash("sha256").update(stableStringify(body)).digest("hex");
 }
@@ -225,7 +256,12 @@ export async function buildApprovalPreview(
     ReturnType<typeof fetchLiveCampaignSnapshot>
   > | null = null;
 
-  const needsAd = (payload.changes ?? []).some((c) => c.field === "ad.status");
+  const creativeMeta = getCreativeEditMeta(payload);
+  const needsCreative =
+    Boolean(creativeMeta) ||
+    (payload.changes ?? []).some((c) => isK2aCreativeChangeField(c.field));
+  const needsAd =
+    (payload.changes ?? []).some((c) => c.field === "ad.status") || needsCreative;
   const needsAdset = (payload.changes ?? []).some(
     (c) => c.field === "adset.status" || c.field === "adset.daily_budget",
   );
@@ -233,6 +269,9 @@ export async function buildApprovalPreview(
     (c) =>
       c.field === "campaign.status" || c.field === "campaign.daily_budget",
   );
+
+  let liveCreativeSnap: CreativeTextSnapshot | null = null;
+  let liveCreativeId: string | null = null;
 
   try {
     if (needsAd && adId) {
@@ -244,12 +283,17 @@ export async function buildApprovalPreview(
     if (needsCampaign && resolvedCampaignId) {
       liveCampaign = await fetchLiveCampaignSnapshot(resolvedCampaignId);
     }
+    if (needsCreative && adId) {
+      const { creative } = await fetchLiveAdCreative(adId);
+      liveCreativeId = creative.id;
+      liveCreativeSnap = snapshotFromLiveCreative(creative);
+    }
   } catch (err) {
     liveReadOk = false;
     liveReadError = err instanceof Error ? err.message : String(err);
   }
 
-  if ((needsAd || needsAdset || needsCampaign) && !liveReadOk) {
+  if ((needsAd || needsAdset || needsCampaign || needsCreative) && !liveReadOk) {
     // already set
   } else if (needsAd && !liveAd) {
     liveReadOk = false;
@@ -260,7 +304,51 @@ export async function buildApprovalPreview(
   } else if (needsCampaign && !liveCampaign) {
     liveReadOk = false;
     liveReadError = "Kampanya canlı durumu okunamadı";
+  } else if (needsCreative && !liveCreativeSnap) {
+    liveReadOk = false;
+    liveReadError = "Kreatif canlı içeriği okunamadı";
   }
+
+  // Onay ekranındaki sürüm = canlı kreatif
+  if (
+    liveReadOk &&
+    creativeMeta &&
+    liveCreativeSnap &&
+    liveCreativeId &&
+    creativeMeta.mode !== "revert_bind"
+  ) {
+    if (liveCreativeId !== creativeMeta.currentCreativeId) {
+      liveReadOk = false;
+      liveReadError = `Kreatif kimliği değişmiş (paket ${creativeMeta.currentCreativeId}, canlı ${liveCreativeId})`;
+    } else {
+      const liveFp = creativeFingerprint(liveCreativeSnap);
+      if (liveFp !== creativeMeta.currentFingerprint) {
+        liveReadOk = false;
+        liveReadError =
+          "Kreatif metin/URL/UTM onay paketinden sonra değişmiş — yeniden paketleyin";
+      }
+    }
+  }
+
+  const fieldFromLive = (field: string): unknown => {
+    if (!liveCreativeSnap) return undefined;
+    switch (field) {
+      case "creative.primary_text":
+        return liveCreativeSnap.primaryText || null;
+      case "creative.headline":
+        return liveCreativeSnap.headline || null;
+      case "creative.description":
+        return liveCreativeSnap.description || null;
+      case "creative.cta":
+        return liveCreativeSnap.cta || null;
+      case "creative.link":
+        return liveCreativeSnap.link || null;
+      case "creative.url_tags":
+        return liveCreativeSnap.urlTags || null;
+      default:
+        return undefined;
+    }
+  };
 
   const changes: ApprovalPreviewChange[] = (payload.changes ?? []).map((c) => {
     let current = c.current;
@@ -282,6 +370,9 @@ export async function buildApprovalPreview(
     } else if (c.field === "campaign.daily_budget" && liveCampaign) {
       const minor = parseMetaBudgetMinor(liveCampaign.daily_budget);
       current = majorFromMinor(minor);
+      currentFromLive = true;
+    } else if (isK2aCreativeChangeField(c.field) && liveCreativeSnap) {
+      current = fieldFromLive(c.field) ?? c.current;
       currentFromLive = true;
     }
 
@@ -313,7 +404,10 @@ export async function buildApprovalPreview(
     return row;
   });
 
-  if (changes.some((c) => !c.currentFromLive) && (needsAd || needsAdset || needsCampaign)) {
+  if (
+    changes.some((c) => !c.currentFromLive) &&
+    (needsAd || needsAdset || needsCampaign || needsCreative)
+  ) {
     // Alan canlı okunamadıysa onay engelli
     if (liveReadOk) {
       liveReadOk = false;
@@ -327,6 +421,28 @@ export async function buildApprovalPreview(
     liveReadOk = false;
     liveReadError = currencyMismatchMessage(tenantCurrency, metaCurrency);
   }
+
+  const warnings = creativeMeta
+    ? creativeSideEffectWarnings(creativeMeta.mode)
+    : [];
+
+  const creativeCompare =
+    creativeMeta && creativeMeta.mode !== "revert_bind"
+      ? {
+          mode: creativeMeta.mode,
+          currentCreativeId: creativeMeta.currentCreativeId,
+          current: (liveCreativeSnap ||
+            creativeMeta.current) as CreativeTextSnapshot,
+          proposed: creativeMeta.proposed as unknown as CreativeTextSnapshot,
+        }
+      : creativeMeta?.mode === "revert_bind"
+        ? {
+            mode: creativeMeta.mode,
+            currentCreativeId: creativeMeta.currentCreativeId,
+            current: creativeMeta.current as unknown as CreativeTextSnapshot,
+            proposed: creativeMeta.proposed as unknown as CreativeTextSnapshot,
+          }
+        : null;
 
   const base: Omit<ApprovalPreview, "fingerprint"> = {
     packageId: pack.id,
@@ -361,6 +477,8 @@ export async function buildApprovalPreview(
     liveReadOk,
     liveReadError,
     lastSyncedAt,
+    warnings,
+    creativeCompare,
   };
 
   return { ...base, fingerprint: fingerprintOf(base) };
@@ -381,6 +499,13 @@ export function previewSummaryForStorage(preview: ApprovalPreview) {
     changes: preview.changes,
     liveReadOk: preview.liveReadOk,
     lastSyncedAt: preview.lastSyncedAt,
+    warnings: preview.warnings,
+    creativeCompare: preview.creativeCompare
+      ? {
+          mode: preview.creativeCompare.mode,
+          currentCreativeId: preview.creativeCompare.currentCreativeId,
+        }
+      : null,
   };
 }
 

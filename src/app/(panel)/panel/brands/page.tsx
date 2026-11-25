@@ -17,6 +17,8 @@ import { loadBrandTable } from "@/lib/panel/brand-table";
 import { getHourlySyncState } from "@/lib/panel/hourly-sync";
 import { countAgencyBrands, listAgencyBrands } from "@/lib/panel/data";
 import { isStaffRole, rootDomain } from "@/lib/panel/host";
+import { canAccessAdsPublish } from "@/lib/panel/ads-publish/access-policy";
+import { prisma } from "@/lib/db";
 import { can } from "@/lib/panel/permissions";
 
 /**
@@ -72,6 +74,14 @@ export default async function BrandsPage({
         month: table.month,
       })
     : null;
+
+  const self = await prisma.user.findFirst({
+    where: session.user.email
+      ? { email: session.user.email }
+      : { id: session.user.id ?? "" },
+    select: { name: true, email: true, role: true },
+  });
+  const canViewPerformance = canAccessAdsPublish(self);
 
   /** Durum + görünüm parametrelerini koruyarak link üretir. */
   const brandsHref = (next: { inactive?: boolean; table?: boolean }) => {
@@ -157,6 +167,7 @@ export default async function BrandsPage({
           hourlySync={hourlySync}
           results={results}
           staff={staff}
+          canViewPerformance={canViewPerformance}
         />
       ) : null}
 

@@ -54,6 +54,19 @@ export type AdChangeSourceLink = {
   cardTitle?: string;
 };
 
+/** K2a kreatif düzenleme meta — bkz. creative-edit.ts */
+export type AdChangeCreativeEdit = {
+  mode: "spec_patch" | "url_tags_only" | "revert_bind";
+  shape?: string;
+  currentCreativeId: string;
+  newCreativeId?: string | null;
+  restoreCreativeId?: string | null;
+  current: Record<string, unknown>;
+  proposed: Record<string, unknown>;
+  currentFingerprint: string;
+  expectedCreateBody?: Record<string, unknown>;
+};
+
 export type AdChangePayload = {
   target: AdChangeTarget;
   rationale: AdChangeRationale;
@@ -61,6 +74,8 @@ export type AdChangePayload = {
   plan: AdChangePlanStep[];
   media: AdChangeMedia[];
   source?: AdChangeSourceLink;
+  /** K2a: create → bind için kaynak / hedef kreatif özeti */
+  creative?: AdChangeCreativeEdit;
 };
 
 export const AD_CHANGE_STATUS_LABEL: Record<AdChangePackageStatus, string> = {
@@ -98,4 +113,7 @@ export type AdChangePackageListItem = {
   outcomeNote?: string | null;
   /** Running adım zaman aşımını aştı — kurtarma taraması bekleniyor. */
   isStuck?: boolean;
+  /** Bind sonrası Meta inceleme durumu. */
+  metaReviewStatus?: string;
+  metaReviewFeedback?: string;
 };

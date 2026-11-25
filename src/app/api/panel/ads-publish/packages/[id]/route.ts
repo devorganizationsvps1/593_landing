@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdsPublishApi } from "@/lib/panel/ads-publish/access";
 import {
+  createCreativeRevertPackage,
   decidePackage,
   getPackageDetail,
   submitForApproval,
@@ -91,6 +92,13 @@ export async function POST(
         decision: action,
         note: body.note,
         previewFingerprint: body.previewFingerprint,
+      });
+      return NextResponse.json({ ok: true, package: pack });
+    }
+    if (action === "revert_creative") {
+      const pack = await createCreativeRevertPackage({
+        actor,
+        sourcePackageId: id,
       });
       return NextResponse.json({ ok: true, package: pack });
     }

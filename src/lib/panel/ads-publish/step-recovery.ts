@@ -18,6 +18,7 @@ import {
   packageBudgetToMetaMinor,
   parseMetaBudgetMinor,
 } from "@/lib/panel/ads-publish/budget-units";
+import { getCreativeEditMeta } from "@/lib/panel/ads-publish/creative-edit";
 
 export function stepRunningTimeoutMs(): number {
   const n = Number(process.env.AD_CHANGE_STEP_RUNNING_TIMEOUT_MS || "300000");
@@ -89,6 +90,24 @@ export async function compareLiveToPackage(opts: {
         liveMinor !== null &&
         startMinor !== null &&
         budgetsEqualMetaMinor(liveMinor, startMinor),
+    };
+  }
+
+  if (
+    (kind === "creative.bind" || kind === "creative.create") &&
+    payload.target.adId
+  ) {
+    const live = await fetchLiveAdSnapshot(payload.target.adId);
+    const liveCid = live.creative?.id || "";
+    const meta = getCreativeEditMeta(payload);
+    const want =
+      meta?.mode === "revert_bind"
+        ? meta.restoreCreativeId || ""
+        : meta?.newCreativeId || String(proposed || "");
+    const start = meta?.currentCreativeId || String(initial || "");
+    return {
+      matchesProposed: Boolean(want) && liveCid === want,
+      matchesInitial: Boolean(start) && liveCid === start,
     };
   }
 

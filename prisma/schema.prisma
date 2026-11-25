@@ -265,8 +265,9 @@ model Tenant {
   reports           BrandReport[]
   notificationLogs  NotificationLog[]
   meetings          Meeting[]
-  adChangePackages  AdChangePackage[]
-  panelNotices      PanelNotice[]
+  adChangePackages     AdChangePackage[]
+  metaOrphanCreatives  MetaOrphanCreative[]
+  panelNotices         PanelNotice[]
 
   @@index([ownerId])
 }
@@ -1246,6 +1247,10 @@ model AdChangePackage {
   status         AdChangePackageStatus @default(draft)
   title          String                @default("")
   currentVersion Int                   @default(1)
+  /// Bind sonrası Meta effective_status (PENDING_REVIEW, ACTIVE, DISAPPROVED…).
+  metaReviewStatus   String @default("")
+  /// Red / inceleme özeti (kısa metin).
+  metaReviewFeedback String @default("")
   createdById    String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
@@ -1258,6 +1263,28 @@ model AdChangePackage {
 
   @@index([status, updatedAt])
   @@index([tenantId, platform, updatedAt])
+}
+
+/// Create OK / bind veya read-back fail — sahipsiz kreatif.
+model MetaOrphanCreative {
+  id          String    @id @default(cuid())
+  tenantId    String
+  adAccountId String    @default("")
+  creativeId  String
+  adId        String    @default("")
+  packageId   String?
+  jobId       String?
+  stepId      String?
+  reason      String    @default("")
+  detail      Json      @default("{}")
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, creativeId])
+  @@index([tenantId, resolvedAt, createdAt])
 }
 
 model AdChangePackageVersion {

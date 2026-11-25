@@ -60,6 +60,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/board": ClipboardList,
   "/kampanyalar": Megaphone,
   "/meta-yayin": PenLine,
+  "/meta-sahipsiz": PenLine,
   "/google-analiz": LineChart,
   "/takvim": CalendarDays,
   "/ekip": Users,

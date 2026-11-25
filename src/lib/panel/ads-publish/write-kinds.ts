@@ -17,6 +17,8 @@ export type MetaWriteKind =
   | "adset.placements"
   | "adset.bid"
   | "adset.schedule"
+  | "creative.create"
+  | "creative.bind"
   | "creative.media"
   | "creative.primary_text"
   | "creative.headline"
@@ -34,15 +36,24 @@ export const WRITE_KINDS_K1: readonly string[] = [
   "adset.daily_budget",
 ];
 
-/** K2 — mevcut reklam düzenleme. */
+/**
+ * K2a — metin / URL / UTM (create + bind).
+ * K2b (media) ve K2c (schedule) allowlist’e sonra eklenir.
+ */
 export const WRITE_KINDS_K2: readonly string[] = [
-  "creative.media",
+  "creative.create",
+  "creative.bind",
   "creative.primary_text",
   "creative.headline",
   "creative.description",
   "creative.cta",
   "creative.link",
   "creative.url_tags",
+];
+
+/** K2b / K2c — henüz bayrak altında uygulanmaz (referans). */
+export const WRITE_KINDS_K2_DEFERRED: readonly string[] = [
+  "creative.media",
   "creative.page",
   "creative.instagram",
   "adset.schedule",

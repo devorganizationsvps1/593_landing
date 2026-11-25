@@ -194,12 +194,15 @@ export default function AgencyBrandRowDetail({
   daysInMonth,
   monthLabel,
   currentHour,
+  canViewPerformance = false,
 }: {
   row: BrandTableRow;
   today: string;
   daysInMonth: number;
   monthLabel: string;
   currentHour: number;
+  /** Şimdilik yalnızca Muhammet allowlist. */
+  canViewPerformance?: boolean;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const [days, setDays] = useState<number>(14);
@@ -244,7 +247,9 @@ export default function AgencyBrandRowDetail({
     badgeTone?: "error" | "neutral";
   }> = [
     { id: "overview", label: "Genel bakış", Icon: Wallet },
-    { id: "performance", label: "Performans", Icon: BarChart3 },
+    ...(canViewPerformance
+      ? [{ id: "performance" as const, label: "Performans", Icon: BarChart3 }]
+      : []),
     {
       id: "logs",
       label: "Senkron logu",
@@ -260,6 +265,10 @@ export default function AgencyBrandRowDetail({
       badgeTone: data?.alerts.length ? "error" : "neutral",
     },
   ];
+
+  useEffect(() => {
+    if (!canViewPerformance && tab === "performance") setTab("overview");
+  }, [canViewPerformance, tab]);
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -322,7 +331,9 @@ export default function AgencyBrandRowDetail({
         </div>
       ) : null}
 
-      {tab === "performance" ? <AgencyBrandPerformance slug={row.slug} /> : null}
+      {tab === "performance" && canViewPerformance ? (
+        <AgencyBrandPerformance slug={row.slug} />
+      ) : null}
 
       {tab === "logs" ? (
         <div className="space-y-4">

@@ -98,8 +98,14 @@ export default async function PanelLayout({
       ((browserPath === "/meta-yayin" ||
         browserPath.startsWith("/meta-yayin/")) &&
         adsPublish) ||
+      ((browserPath === "/meta-sahipsiz" ||
+        browserPath.startsWith("/meta-sahipsiz/")) &&
+        adsPublish) ||
       ((browserPath === "/google-analiz" ||
         browserPath.startsWith("/google-analiz/")) &&
+        adsPublish) ||
+      ((browserPath === "/performans" ||
+        browserPath.startsWith("/performans/")) &&
         adsPublish) ||
       browserPath === "/ekip" ||
       browserPath.startsWith("/ekip/") ||
@@ -133,7 +139,9 @@ export default async function PanelLayout({
                 : STAFF_NAV_LINKS.filter((l) => {
                     if (
                       l.href === "/meta-yayin" ||
-                      l.href === "/google-analiz"
+                      l.href === "/meta-sahipsiz" ||
+                      l.href === "/google-analiz" ||
+                      l.href === "/performans"
                     ) {
                       return adsPublish;
                     }
