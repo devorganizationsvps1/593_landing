@@ -1405,7 +1405,7 @@ export default function OffbrandHome() {
         className="page-x relative overflow-x-clip border-t border-white/8 bg-[#141111] pb-[calc(7rem+var(--safe-b))] pt-28 md:flex md:min-h-dvh md:items-center md:justify-center md:pb-20 md:pt-[min(38vh,16rem)]"
       >
         <div
-          className="relative mx-auto w-full max-w-6xl"
+          className="relative mx-auto w-full max-w-7xl"
           onMouseLeave={() => setActiveBrand(null)}
         >
           <div
@@ -1432,7 +1432,7 @@ export default function OffbrandHome() {
               size and phones get density from a tighter grid instead. */}
           <ul
             data-reveal
-            className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-6"
+            className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-7"
           >
             {brands.map((brand) => {
               const isActive = activeBrand?.name === brand.name;
