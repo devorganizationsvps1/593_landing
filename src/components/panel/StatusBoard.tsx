@@ -39,6 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toolChip, toolField, toolSelect } from "@/components/panel/ds/buttons";
 import {
   useCallback,
   useEffect,
@@ -1027,7 +1028,7 @@ export default function StatusBoard({
               }}
               placeholder="Görev başlığında ara"
               aria-label="Görev başlığında ara"
-              className="h-8 w-full rounded-lg border border-zinc-200 bg-white pl-8 pr-7 text-xs text-zinc-800 outline-none transition placeholder:text-zinc-400 hover:border-zinc-300 focus:border-zinc-400 [&::-webkit-search-cancel-button]:hidden"
+              className={`${toolField} pl-8 pr-7 [&::-webkit-search-cancel-button]:hidden`}
             />
             {titleQuery ? (
               <button
@@ -1065,11 +1066,7 @@ export default function StatusBoard({
             type="button"
             aria-pressed={filters.overdue}
             onClick={() => setFilters({ overdue: !filters.overdue })}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
-              filters.overdue
-                ? "border-rose-200 bg-rose-50 text-rose-700"
-                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
-            }`}
+            className={toolChip(filters.overdue, "rose")}
           >
             <Clock className="size-3.5" aria-hidden />
             Gecikenler
@@ -1078,11 +1075,7 @@ export default function StatusBoard({
             type="button"
             aria-pressed={filters.today}
             onClick={() => setFilters({ today: !filters.today })}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
-              filters.today
-                ? "border-amber-200 bg-amber-50 text-amber-800"
-                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
-            }`}
+            className={toolChip(filters.today, "amber")}
           >
             Bugün teslim
           </button>
@@ -1090,11 +1083,7 @@ export default function StatusBoard({
             type="button"
             aria-pressed={filters.review}
             onClick={() => setFilters({ review: !filters.review })}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
-              filters.review
-                ? "border-sky-200 bg-sky-50 text-sky-800"
-                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
-            }`}
+            className={toolChip(filters.review, "sky")}
           >
             Onay bekleyen
           </button>
@@ -1113,7 +1102,7 @@ export default function StatusBoard({
                   review: false,
                 });
               }}
-              className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+              className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
             >
               <X className="size-3.5" aria-hidden />
               Temizle
@@ -1126,7 +1115,7 @@ export default function StatusBoard({
               {filteredCount} kart
             </span>
             <div
-              className="flex h-8 items-center gap-0.5 rounded-lg bg-zinc-100 p-0.5"
+              className="flex h-8 items-center gap-0.5 rounded-full bg-zinc-100 p-0.5"
               role="group"
               aria-label="Görünüm"
             >
@@ -1144,7 +1133,7 @@ export default function StatusBoard({
                     aria-pressed={on}
                     onClick={() => setFilters({ group: key })}
                     title={title}
-                    className={`inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
+                    className={`inline-flex h-full items-center gap-1.5 rounded-full px-3 text-xs font-medium transition ${
                       on
                         ? "bg-white text-zinc-900 shadow-sm"
                         : "text-zinc-500 hover:text-zinc-800"
@@ -1953,11 +1942,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`h-8 max-w-[11rem] cursor-pointer appearance-none truncate rounded-lg border pl-3 pr-7 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-zinc-300 ${
-          active
-            ? "border-zinc-800 bg-zinc-800 text-white"
-            : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-        }`}
+        className={toolSelect(active)}
       >
         <option value="">{label}: tümü</option>
         {options.map((o) => (

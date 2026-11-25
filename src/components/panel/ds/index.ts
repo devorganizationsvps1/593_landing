@@ -33,3 +33,9 @@ export {
   TENANT_NAV_LINKS,
   type PanelNavLink,
 } from "./nav-config";
+export {
+  SocialIcon,
+  SOCIAL_BRAND_COLOR,
+  isSocialIconKey,
+  type SocialIconKey,
+} from "./social-icons";

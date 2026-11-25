@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import type { ContentPostStatus } from "@prisma/client";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
+import { SocialIcon, isSocialIconKey } from "@/components/panel/ds/social-icons";
 import PublishPanel from "@/components/panel/PublishPanel";
 import { RichText } from "@/components/panel/RichText";
 import { brandInitials, resolveBrandCover } from "@/lib/panel/brand-logos";
@@ -60,15 +61,6 @@ const BRAND_PALETTE = [
   "#ad1457", "#ef6c00", "#4285f4", "#7cb342", "#5e35b1", "#c0ca33",
   "#00acc1", "#8d6e63", "#f09300", "#1e88e5", "#43a047", "#d81b60",
 ];
-
-const PLATFORM_DOT: Record<ContentPlatform, string> = {
-  instagram: "#E1306C",
-  facebook: "#0866FF",
-  tiktok: "#111111",
-  linkedin: "#0A66C2",
-  x: "#111111",
-  youtube: "#FF0000",
-};
 
 const STATUS_GLYPH: Record<ContentPostStatus, string> = {
   draft: "○",
@@ -1088,16 +1080,11 @@ export default function ContentCalendar({
                             checked={on}
                             onChange={() => setSelectedPlatforms((prev) => toggleIn(prev, p))}
                           />
-                          <span
-                            className="flex size-4 shrink-0 items-center justify-center rounded-[4px] border"
-                            style={{
-                              background: on ? PLATFORM_DOT[p] : "transparent",
-                              borderColor: PLATFORM_DOT[p],
-                            }}
-                            aria-hidden
-                          >
-                            {on ? <Check className="size-3 text-white" strokeWidth={3} /> : null}
-                          </span>
+                          <SocialIcon
+                            platform={p}
+                            brand
+                            className={`size-4 transition ${on ? "" : "opacity-30 grayscale"}`}
+                          />
                           {PLATFORM_LABEL[p]}
                         </label>
                       </li>
@@ -1854,10 +1841,11 @@ const EventChip = memo(function EventChip({
             {brandInitials(post.tenantName)}
           </span>
         )}
-        <span
-          className="absolute -bottom-px -right-px size-[7px] rounded-full ring-1 ring-white"
-          style={{ background: PLATFORM_DOT[post.platform as ContentPlatform] ?? "#71717a" }}
-        />
+        {isSocialIconKey(post.platform) ? (
+          <span className="absolute -bottom-[3px] -right-[3px] flex size-[11px] items-center justify-center rounded-full bg-white">
+            <SocialIcon platform={post.platform} brand className="size-[8px]" />
+          </span>
+        ) : null}
       </span>
       <span className="min-w-0 flex-1">
         <span className={`block ${size === "lg" ? "whitespace-normal break-words font-semibold leading-snug" : "truncate font-medium"}`}>

@@ -26,7 +26,8 @@ export async function recordSchedulerRun(r: { claimed: number; error?: string | 
 
 /* ───────────────────────── sağlık ───────────────────────── */
 
-export type HealthLevel = "ok" | "warn" | "error";
+/** `info`: bilgi amaçlı — genel sistem durumunu etkilemez. */
+export type HealthLevel = "ok" | "info" | "warn" | "error";
 
 export type HealthItem = {
   key: string;
@@ -174,7 +175,7 @@ function platformHealth(): HealthItem {
   return {
     key: "platforms",
     label: "TikTok + YouTube",
-    level: "warn",
+    level: off.length ? "info" : "ok",
     summary: off.length ? "Sonraki aşamada (OAuth + uygulama onayı)" : "Etkin",
   };
 }

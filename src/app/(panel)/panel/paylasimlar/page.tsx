@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import SocialPublishingDashboard from "@/components/panel/SocialPublishingDashboard";
+import { istanbulDayKey } from "@/lib/panel/client-calendar";
 import { isStaffRole } from "@/lib/panel/host";
 import { can } from "@/lib/panel/permissions";
 import {
@@ -28,6 +29,8 @@ export default async function SocialPublishingPage() {
     loadAccountMatrix(),
   ]);
 
+  const now = new Date();
+
   return (
     <SocialPublishingDashboard
       health={health}
@@ -35,6 +38,8 @@ export default async function SocialPublishingPage() {
       targets={targets}
       matrix={matrix}
       canEdit={can(session.user.role, "brands.edit")}
+      today={istanbulDayKey(now)}
+      now={now.toISOString()}
     />
   );
 }

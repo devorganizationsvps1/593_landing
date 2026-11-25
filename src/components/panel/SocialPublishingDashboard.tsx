@@ -5,18 +5,26 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
+  CalendarDays,
+  Check,
+  ChevronDown,
   CircleDashed,
+  Clock,
   ExternalLink,
   Film,
+  ImageOff,
+  Info,
   Loader2,
   RefreshCw,
   RotateCcw,
-  XCircle,
+  Search,
+  X,
 } from "lucide-react";
-import { btnSecondary, chipClass, fieldClass } from "@/components/panel/ds/buttons";
+import { toolChip, toolField, toolPrimary, toolSelect } from "@/components/panel/ds/buttons";
+import { SocialIcon } from "@/components/panel/ds/social-icons";
 import {
   FORMAT_LABEL,
+  PUBLISHER_READY,
   PUBLISH_STATUS_LABEL,
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABEL,
@@ -30,45 +38,119 @@ import type {
   TargetRow,
 } from "@/lib/social/overview";
 
-const PLATFORM_COLOR: Record<SocialPlatformKey, string> = {
-  instagram: "#E1306C",
-  facebook: "#0866FF",
-  tiktok: "#111111",
-  youtube: "#FF0000",
+/* ───────────────────────── sabitler ───────────────────────── */
+
+const TZ = "Europe/Istanbul";
+
+type Tab = "upcoming" | "published" | "failed" | "accounts";
+
+const LEVEL_DOT: Record<HealthLevel, string> = {
+  ok: "bg-emerald-500",
+  info: "bg-zinc-300",
+  warn: "bg-amber-500",
+  error: "bg-rose-500",
+};
+const LEVEL_TEXT: Record<HealthLevel, string> = {
+  ok: "text-zinc-600",
+  info: "text-zinc-500",
+  warn: "text-amber-800",
+  error: "text-rose-700",
 };
 
-const LEVEL_STYLE: Record<HealthLevel, { box: string; icon: typeof CheckCircle2; tone: string }> = {
-  ok: { box: "border-emerald-200 bg-emerald-50/60", icon: CheckCircle2, tone: "text-emerald-700" },
-  warn: { box: "border-amber-200 bg-amber-50/60", icon: AlertTriangle, tone: "text-amber-700" },
-  error: { box: "border-rose-200 bg-rose-50/70", icon: XCircle, tone: "text-rose-700" },
+const STATUS_TONE: Record<TargetRow["status"], string> = {
+  pending: "border-zinc-200 bg-white text-zinc-700",
+  publishing: "border-amber-200 bg-amber-50 text-amber-900",
+  published: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  failed: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
-const STATUS_CLASS: Record<TargetRow["status"], string> = {
-  pending: "bg-sky-50 text-sky-800",
-  publishing: "bg-amber-50 text-amber-900",
-  published: "bg-emerald-50 text-emerald-800",
-  failed: "bg-rose-50 text-rose-800",
-};
+/* ───────────────────────── tarih yardımcıları ───────────────────────── */
 
-type Tab = "upcoming" | "published" | "failed";
-const TAB_LABEL: Record<Tab, string> = {
-  upcoming: "Yaklaşan",
-  published: "Paylaşılan (30 gün)",
-  failed: "Hatalı",
-};
+const dayKeyFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ });
+const timeFmt = new Intl.DateTimeFormat("tr-TR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+const dayLabelFmt = new Intl.DateTimeFormat("tr-TR", {
+  timeZone: TZ,
+  day: "numeric",
+  month: "long",
+  weekday: "long",
+});
+const shortFmt = new Intl.DateTimeFormat("tr-TR", {
+  timeZone: TZ,
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
-function fmt(iso: string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso));
+function dayKey(iso: string): string {
+  return dayKeyFmt.format(new Date(iso));
 }
 
-function takvimHref(r: TargetRow): string {
-  return `/takvim?post=${r.postId}`;
+function shiftKey(key: string, days: number): string {
+  return new Date(new Date(`${key}T12:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
+
+function dayHeading(key: string, today: string): { main: string; sub: string | null } {
+  const full = dayLabelFmt.format(new Date(`${key}T12:00:00+03:00`));
+  if (key === today) return { main: "Bugün", sub: full };
+  if (key === shiftKey(today, 1)) return { main: "Yarın", sub: full };
+  if (key === shiftKey(today, -1)) return { main: "Dün", sub: full };
+  return { main: full, sub: null };
+}
+
+/* ───────────────────────── gruplama ───────────────────────── */
+
+type PostGroup = {
+  postId: string;
+  title: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  thumb: TargetRow["thumb"];
+  mediaCount: number;
+  autoPublish: boolean;
+  /** Sıralama ve gün başlığı için kullanılan an. */
+  at: string;
+  targets: TargetRow[];
+};
+
+function inTab(t: TargetRow, tab: Tab): boolean {
+  if (tab === "upcoming") return t.status === "pending" || t.status === "publishing";
+  if (tab === "published") return t.status === "published";
+  if (tab === "failed") return t.status === "failed";
+  return false;
+}
+
+function groupByPost(rows: TargetRow[], tab: Tab): PostGroup[] {
+  const map = new Map<string, PostGroup>();
+  for (const r of rows) {
+    const at = tab === "published" ? (r.publishedAt ?? r.scheduledAt) : r.scheduledAt;
+    const g = map.get(r.postId);
+    if (g) {
+      g.targets.push(r);
+      if (tab === "published" && at > g.at) g.at = at;
+    } else {
+      map.set(r.postId, {
+        postId: r.postId,
+        title: r.postTitle || r.captionPreview || "Başlıksız içerik",
+        tenantId: r.tenantId,
+        tenantName: r.tenantName,
+        tenantSlug: r.tenantSlug,
+        thumb: r.thumb,
+        mediaCount: r.mediaCount,
+        autoPublish: r.autoPublish,
+        at,
+        targets: [r],
+      });
+    }
+  }
+  const order = SOCIAL_PLATFORMS as readonly string[];
+  const groups = [...map.values()];
+  for (const g of groups) g.targets.sort((a, b) => order.indexOf(a.platform) - order.indexOf(b.platform));
+  return groups.sort((a, b) => (tab === "upcoming" ? a.at.localeCompare(b.at) : b.at.localeCompare(a.at)));
+}
+
+/* ───────────────────────── bileşen ───────────────────────── */
 
 export default function SocialPublishingDashboard({
   health,
@@ -76,21 +158,36 @@ export default function SocialPublishingDashboard({
   targets,
   matrix,
   canEdit,
+  today,
+  now,
 }: {
   health: HealthItem[];
   counts: SocialCounts;
   targets: TargetRow[];
   matrix: AccountMatrixRow[];
   canEdit: boolean;
+  /** İstanbul gün anahtarı (YYYY-MM-DD) — sunucudan gelir, hydration uyumu için. */
+  today: string;
+  /** Sunucu anı (ISO) — "zamanı geçti" etiketi için. */
+  now: string;
 }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
   const [tab, setTab] = useState<Tab>(counts.failed > 0 ? "failed" : "upcoming");
+  const [query, setQuery] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [platform, setPlatform] = useState<SocialPlatformKey | "">("");
+  const [todayOnly, setTodayOnly] = useState(false);
+  const [onlyMissing, setOnlyMissing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [onlyMissing, setOnlyMissing] = useState(false);
+
+  const worst: HealthLevel = health.some((h) => h.level === "error")
+    ? "error"
+    : health.some((h) => h.level === "warn")
+      ? "warn"
+      : "ok";
+  const [healthOpen, setHealthOpen] = useState(worst !== "ok");
 
   const refresh = () => startRefresh(() => router.refresh());
 
@@ -108,32 +205,71 @@ export default function SocialPublishingDashboard({
     return [...m].sort((a, b) => a[1].localeCompare(b[1], "tr"));
   }, [targets]);
 
-  const filtered = useMemo(() => {
+  const q = query.trim().toLocaleLowerCase("tr");
+
+  const tabCounts = useMemo(() => {
+    const c = { upcoming: 0, published: 0, failed: 0 };
+    for (const t of targets) {
+      if (inTab(t, "upcoming")) c.upcoming++;
+      else if (t.status === "published") c.published++;
+      else if (t.status === "failed") c.failed++;
+    }
+    return c;
+  }, [targets]);
+
+  const groups = useMemo(() => {
+    if (tab === "accounts") return [];
     const rows = targets.filter(
       (t) =>
+        inTab(t, tab) &&
         (!tenantId || t.tenantId === tenantId) &&
         (!platform || t.platform === platform) &&
-        (tab === "upcoming"
-          ? t.status === "pending" || t.status === "publishing"
-          : tab === "published"
-            ? t.status === "published"
-            : t.status === "failed"),
+        (!todayOnly || tab !== "upcoming" || dayKey(t.scheduledAt) === today) &&
+        (!q ||
+          [t.postTitle, t.captionPreview, t.tenantName, t.account ?? ""].some((s) =>
+            s.toLocaleLowerCase("tr").includes(q),
+          )),
     );
-    return rows.sort((a, b) =>
-      tab === "upcoming"
-        ? a.scheduledAt.localeCompare(b.scheduledAt)
-        : (b.publishedAt ?? b.scheduledAt).localeCompare(a.publishedAt ?? a.scheduledAt),
-    );
-  }, [targets, tenantId, platform, tab]);
+    return groupByPost(rows, tab);
+  }, [targets, tab, tenantId, platform, todayOnly, today, q]);
 
-  const tabCount = (t: Tab) =>
-    targets.filter((r) =>
-      t === "upcoming"
-        ? r.status === "pending" || r.status === "publishing"
-        : t === "published"
-          ? r.status === "published"
-          : r.status === "failed",
-    ).length;
+  const days = useMemo(() => {
+    const out: { key: string; items: PostGroup[] }[] = [];
+    for (const g of groups) {
+      const key = dayKey(g.at);
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.items.push(g);
+      else out.push({ key, items: [g] });
+    }
+    return out;
+  }, [groups]);
+
+  const matrixRows = useMemo(
+    () =>
+      matrix.filter(
+        (m) =>
+          (!onlyMissing || !m.accounts.instagram || !m.accounts.facebook) &&
+          (!q || m.tenantName.toLocaleLowerCase("tr").includes(q)),
+      ),
+    [matrix, onlyMissing, q],
+  );
+  const metaConnected = matrix.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
+
+  const listFiltersActive = Boolean(tenantId || platform || todayOnly);
+  const hasActiveFilters = Boolean(q) || (tab === "accounts" ? onlyMissing : listFiltersActive);
+
+  function clearFilters() {
+    setQuery("");
+    setTenantId("");
+    setPlatform("");
+    setTodayOnly(false);
+    setOnlyMissing(false);
+  }
+
+  function goTab(next: Tab, opts: { today?: boolean } = {}) {
+    setTab(next);
+    setTodayOnly(Boolean(opts.today));
+  }
 
   async function retry(r: TargetRow) {
     setBusy(r.id);
@@ -155,258 +291,623 @@ export default function SocialPublishingDashboard({
     }
   }
 
-  const matrixRows = onlyMissing
-    ? matrix.filter((m) => !m.accounts.instagram || !m.accounts.facebook)
-    : matrix;
+  const tabs: { key: Tab; label: string; count: number; alert?: boolean }[] = [
+    { key: "upcoming", label: "Yaklaşan", count: tabCounts.upcoming },
+    { key: "published", label: "Paylaşılan", count: tabCounts.published },
+    { key: "failed", label: "Hatalı", count: tabCounts.failed, alert: tabCounts.failed > 0 },
+    { key: "accounts", label: "Hesaplar", count: metaConnected },
+  ];
+
+  const resultCount =
+    tab === "accounts" ? `${matrixRows.length} marka` : `${groups.length} içerik`;
 
   return (
-    <div className="space-y-6">
-      {/* ── sistem durumu ── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-[#141111]">Sistem durumu</h2>
-          <button type="button" className={`${btnSecondary} !min-h-9`} onClick={refresh} disabled={refreshing}>
-            {refreshing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
-            Yenile
-          </button>
-        </div>
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {health.map((h) => {
-            const s = LEVEL_STYLE[h.level];
-            const Icon = s.icon;
-            return (
-              <li key={h.key} className={`rounded-xl border p-4 ${s.box}`}>
-                <div className="flex items-center gap-2">
-                  <Icon className={`size-4 shrink-0 ${s.tone}`} aria-hidden />
-                  <p className="text-sm font-semibold text-[#141111]">{h.label}</p>
-                </div>
-                <p className={`mt-1.5 text-sm ${s.tone}`}>{h.summary}</p>
-                {h.detail ? <p className="mt-1 break-words text-xs text-zinc-600">{h.detail}</p> : null}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      {/* ── sayaçlar ── */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: "Sırada (otomatik)", value: counts.queued },
-          { label: "Bugün paylaşılacak", value: counts.dueToday },
-          { label: "Son 7 günde paylaşılan", value: counts.published7d },
-          { label: "Hatalı", value: counts.failed, alert: counts.failed > 0 },
-        ].map((c) => (
-          <div
-            key={c.label}
-            className={`rounded-xl border p-4 ${c.alert ? "border-rose-200 bg-rose-50/60" : "border-zinc-200 bg-white"}`}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{c.label}</p>
-            <p className={`mt-1 text-2xl font-semibold tabular-nums ${c.alert ? "text-rose-700" : "text-[#141111]"}`}>
-              {c.value}
-            </p>
-          </div>
-        ))}
-      </section>
-
-      {/* ── paylaşımlar ── */}
-      <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+    <div className="space-y-4">
+      {/* ── araç çubuğu ── */}
+      <div className="space-y-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
-            <button key={t} type="button" className={chipClass(tab === t)} onClick={() => setTab(t)}>
-              {TAB_LABEL[t]}
-              <span className="tabular-nums opacity-70">{tabCount(t)}</span>
-            </button>
-          ))}
-          <div className="ml-auto flex flex-wrap gap-2">
-            <select className={`${fieldClass} !min-h-9 text-sm`} value={tenantId} onChange={(e) => setTenantId(e.target.value)} aria-label="Marka">
-              <option value="">Tüm markalar</option>
-              {tenants.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={`${fieldClass} !min-h-9 text-sm`}
-              value={platform}
-              onChange={(e) => setPlatform(e.target.value as SocialPlatformKey | "")}
-              aria-label="Platform"
+          {/* özet — her sayı ilgili listeyi açar */}
+          <div
+            className="flex items-stretch divide-x divide-zinc-200/80 overflow-hidden rounded-full bg-zinc-100"
+            role="group"
+            aria-label="Paylaşım özeti"
+          >
+            <Stat
+              value={counts.queued}
+              label="sırada"
+              title="Otomatik paylaşılmayı bekleyen hedefler"
+              onClick={() => goTab("upcoming")}
+            />
+            <Stat
+              value={counts.dueToday}
+              label="bugün"
+              title="Bugün paylaşılacak hedefler"
+              onClick={() => goTab("upcoming", { today: true })}
+            />
+            <Stat
+              value={counts.published7d}
+              label="son 7 gün"
+              title="Son 7 günde paylaşılan hedefler"
+              onClick={() => goTab("published")}
+            />
+            <Stat
+              value={counts.failed}
+              label="hatalı"
+              title="Hata alan hedefler"
+              alert
+              onClick={() => goTab("failed")}
+            />
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={
+                worst === "error" ? toolChip(true, "rose") : worst === "warn" ? toolChip(true, "amber") : toolChip()
+              }
+              aria-expanded={healthOpen}
+              aria-controls="social-health"
+              onClick={() => setHealthOpen((v) => !v)}
             >
-              <option value="">Tüm platformlar</option>
-              {SOCIAL_PLATFORMS.map((p) => (
-                <option key={p} value={p}>
-                  {SOCIAL_PLATFORM_LABEL[p]}
-                </option>
-              ))}
-            </select>
+              <span className={`size-2 rounded-full ${LEVEL_DOT[worst]}`} aria-hidden />
+              {worst === "error" ? "Sistemde sorun var" : worst === "warn" ? "Sistemde uyarı var" : "Sistem hazır"}
+              <ChevronDown className={`size-3.5 transition ${healthOpen ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={toolChip()}
+              onClick={refresh}
+              disabled={refreshing}
+              title="Listeyi ve sistem durumunu yenile"
+            >
+              {refreshing ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-3.5" aria-hidden />
+              )}
+              Yenile
+            </button>
+            <Link
+              href="/takvim"
+              className={toolPrimary}
+            >
+              <CalendarDays className="size-3.5" aria-hidden />
+              Takvimde planla
+            </Link>
           </div>
         </div>
-        {error ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
 
-        {filtered.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-500">
-            {tab === "upcoming"
-              ? "Sırada paylaşım yok. Takvimde bir içeriği açıp “Otomatik paylaşım” bölümünden platform seçin."
-              : tab === "published"
-                ? "Son 30 günde paylaşım yok."
-                : "Hatalı paylaşım yok."}
-            {tab === "upcoming" ? (
-              <div className="mt-3">
-                <Link href="/takvim" className="font-semibold text-[#e91825] hover:underline">
-                  Takvime git
-                </Link>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <ul className="divide-y divide-zinc-100">
-            {filtered.map((r) => (
-              <li key={r.id} className="flex gap-3 py-3">
-                <Link
-                  href={takvimHref(r)}
-                  className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100"
-                  aria-label="İçeriği takvimde aç"
-                >
-                  {r.thumb?.kind === "image" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.thumb.url} alt="" className="h-full w-full object-cover" loading="lazy" />
-                  ) : r.thumb?.kind === "video" ? (
-                    <span className="flex h-full w-full items-center justify-center text-zinc-500">
-                      <Film className="size-5" aria-hidden />
-                    </span>
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-[10px] text-zinc-400">medya yok</span>
-                  )}
-                  {r.mediaCount > 1 ? (
-                    <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[10px] text-white">
-                      {r.mediaCount}
-                    </span>
-                  ) : null}
-                </Link>
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#141111]"
-                      title={r.account ?? undefined}
-                    >
-                      <span className="size-2.5 rounded-full" style={{ background: PLATFORM_COLOR[r.platform] }} aria-hidden />
-                      {SOCIAL_PLATFORM_LABEL[r.platform]} · {FORMAT_LABEL[r.format]}
-                    </span>
-                    <span className="text-xs text-zinc-400">·</span>
-                    <Link href={`/brands/${r.tenantSlug}#sosyal-hesaplar`} className="text-xs text-zinc-600 hover:underline">
-                      {r.tenantName}
-                    </Link>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_CLASS[r.status]}`}>
-                      {r.status === "publishing" ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
-                      {PUBLISH_STATUS_LABEL[r.status]}
-                    </span>
-                    {r.status === "pending" && !r.autoPublish ? (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600"
-                        title="İçerikte “Zamanı gelince otomatik paylaş” kapalı — yalnızca elle paylaşılır."
-                      >
-                        <CircleDashed className="size-3" aria-hidden />
-                        Otomatik kapalı
-                      </span>
-                    ) : null}
-                  </div>
-                  <Link href={takvimHref(r)} className="mt-0.5 block truncate text-sm font-medium text-[#141111] hover:underline">
-                    {r.postTitle || r.captionPreview || "Başlıksız içerik"}
-                  </Link>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {r.status === "published" && r.publishedAt
-                      ? `Paylaşıldı ${fmt(r.publishedAt)}`
-                      : `Planlanan ${fmt(r.scheduledAt)}`}
-                    {r.status === "pending" && r.nextAttemptAt ? ` · tekrar denenecek ${fmt(r.nextAttemptAt)}` : ""}
-                    {r.attempts > 1 ? ` · ${r.attempts}. deneme` : ""}
+        {/* sistem durumu — sorun varsa açık gelir */}
+        {healthOpen ? (
+          <ul
+            id="social-health"
+            className="grid gap-x-6 gap-y-2.5 rounded-xl bg-zinc-50 p-3.5 sm:grid-cols-2"
+          >
+            {health.map((h) => (
+              <li key={h.key} className="flex min-w-0 items-start gap-2.5">
+                <span className={`mt-[5px] size-2 shrink-0 rounded-full ${LEVEL_DOT[h.level]}`} aria-hidden />
+                <div className="min-w-0 text-xs leading-relaxed">
+                  <p>
+                    <span className="font-semibold text-zinc-800">{h.label}</span>
+                    <span className={`ml-1.5 ${LEVEL_TEXT[h.level]}`}>{h.summary}</span>
                   </p>
-                  {r.lastError && r.status !== "published" ? (
-                    <p className="mt-1 flex items-start gap-1 break-words text-xs text-rose-700">
-                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                      {r.lastError}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  {r.permalink ? (
-                    <a
-                      href={r.permalink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#e91825] hover:underline"
-                    >
-                      <ExternalLink className="size-3.5" aria-hidden />
-                      Aç
-                    </a>
-                  ) : null}
-                  {canEdit && r.status === "failed" ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#141111] hover:underline disabled:opacity-50"
-                      disabled={busy !== null}
-                      onClick={() => void retry(r)}
-                    >
-                      {busy === r.id ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <RotateCcw className="size-3.5" aria-hidden />}
-                      Tekrar dene
-                    </button>
-                  ) : null}
+                  {h.detail ? <p className="break-words text-zinc-500">{h.detail}</p> : null}
                 </div>
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        ) : null}
 
-      {/* ── hesaplar ── */}
-      <section className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold text-[#141111]">Bağlı hesaplar</h2>
-            <p className="mt-0.5 text-sm text-zinc-500">Bağlamak için markaya tıklayın → Sosyal hesaplar.</p>
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3">
+          <div
+            className="flex h-8 max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-zinc-100 p-0.5"
+            role="tablist"
+            aria-label="Görünüm"
+          >
+            {tabs.map((t) => {
+              const on = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => goTab(t.key)}
+                  className={`inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition ${
+                    on ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
+                  }`}
+                >
+                  {t.label}
+                  <span
+                    className={`tabular-nums ${
+                      t.alert ? "font-semibold text-rose-600" : on ? "text-zinc-500" : "text-zinc-400"
+                    }`}
+                  >
+                    {t.key === "accounts" ? `${t.count}/${matrix.length}` : t.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          <label className="inline-flex items-center gap-2 text-sm text-zinc-600">
-            <input type="checkbox" className="size-4 accent-[#e91825]" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />
-            Yalnızca Meta eksik olanlar
+
+          <label className="relative flex h-8 w-full items-center sm:w-52">
+            <Search className="pointer-events-none absolute left-2.5 size-3.5 text-zinc-400" aria-hidden />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setQuery("");
+              }}
+              placeholder={tab === "accounts" ? "Marka ara" : "İçerik veya marka ara"}
+              aria-label={tab === "accounts" ? "Marka ara" : "İçerik veya marka ara"}
+              className={`${toolField} pl-8 pr-7 [&::-webkit-search-cancel-button]:hidden`}
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Aramayı temizle"
+                className="absolute right-1.5 rounded p-0.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                <X className="size-3.5" aria-hidden />
+              </button>
+            ) : null}
           </label>
+
+          {tab === "accounts" ? (
+            <button
+              type="button"
+              aria-pressed={onlyMissing}
+              onClick={() => setOnlyMissing((v) => !v)}
+              className={toolChip(onlyMissing, "amber")}
+            >
+              Meta eksik olanlar
+            </button>
+          ) : (
+            <>
+              <FilterSelect
+                label="Marka"
+                value={tenantId}
+                onChange={setTenantId}
+                options={tenants.map(([id, name]) => ({ value: id, label: name }))}
+              />
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Platform">
+                {SOCIAL_PLATFORMS.map((p) => {
+                  const on = platform === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setPlatform(on ? "" : p)}
+                      title={SOCIAL_PLATFORM_LABEL[p]}
+                      aria-label={SOCIAL_PLATFORM_LABEL[p]}
+                      className={`inline-flex size-8 items-center justify-center rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e91825] ${
+                        on ? "bg-[#141111] text-white" : "bg-zinc-100 hover:bg-zinc-200/70"
+                      }`}
+                    >
+                      <SocialIcon platform={p} brand={!on} className="size-4" />
+                    </button>
+                  );
+                })}
+              </div>
+              {tab === "upcoming" ? (
+                <button
+                  type="button"
+                  aria-pressed={todayOnly}
+                  onClick={() => setTodayOnly((v) => !v)}
+                  className={toolChip(todayOnly, "amber")}
+                >
+                  <Clock className="size-3.5" aria-hidden />
+                  Bugün
+                </button>
+              ) : null}
+            </>
+          )}
+
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800"
+            >
+              <X className="size-3.5" aria-hidden />
+              Temizle
+            </button>
+          ) : null}
+
+          <span className="ml-auto text-xs tabular-nums text-zinc-500">
+            {tab === "published" ? "Son 30 gün · " : ""}
+            {resultCount}
+          </span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500">
-                <th className="py-2 pr-3 font-medium">Marka</th>
-                {SOCIAL_PLATFORMS.map((p) => (
-                  <th key={p} className="px-3 py-2 font-medium">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="size-2 rounded-full" style={{ background: PLATFORM_COLOR[p] }} aria-hidden />
-                      {SOCIAL_PLATFORM_LABEL[p]}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {matrixRows.map((m) => (
-                <tr key={m.tenantId}>
-                  <td className="py-2 pr-3">
-                    <Link href={`/brands/${m.tenantSlug}#sosyal-hesaplar`} className="font-medium text-[#141111] hover:underline">
+      </div>
+
+      {error ? (
+        <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
+
+      {/* ── içerik ── */}
+      {tab === "accounts" ? (
+        <AccountsTable rows={matrixRows} total={matrix.length} canEdit={canEdit} />
+      ) : days.length === 0 ? (
+        <EmptyList tab={tab} filtered={hasActiveFilters} onClear={clearFilters} />
+      ) : (
+        <div className="space-y-5">
+          {days.map((d) => {
+            const h = dayHeading(d.key, today);
+            return (
+              <section key={d.key} className="space-y-2">
+                <header className="flex items-baseline gap-2 px-1">
+                  <h2
+                    className={`text-sm font-semibold ${d.key === today ? "text-[#e91825]" : "text-zinc-800"}`}
+                  >
+                    {h.main}
+                  </h2>
+                  {h.sub ? <span className="text-xs text-zinc-500">{h.sub}</span> : null}
+                  <span className="ml-auto text-[11px] tabular-nums text-zinc-400">{d.items.length} içerik</span>
+                </header>
+                <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                  {d.items.map((g) => (
+                    <PostRow
+                      key={g.postId}
+                      group={g}
+                      tab={tab}
+                      now={now}
+                      canEdit={canEdit}
+                      busy={busy}
+                      onRetry={retry}
+                    />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────────────────── parçalar ───────────────────────── */
+
+function Stat({
+  value,
+  label,
+  title,
+  alert = false,
+  onClick,
+}: {
+  value: number;
+  label: string;
+  title: string;
+  /** Sıfırdan büyükse sayı kırmızı. */
+  alert?: boolean;
+  onClick: () => void;
+}) {
+  const active = value > 0;
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="group inline-flex h-8 items-baseline gap-1.5 whitespace-nowrap px-3.5 pt-[7px] transition hover:bg-zinc-200/70"
+    >
+      <span
+        className={`text-[13px] font-semibold tabular-nums ${
+          !active ? "text-zinc-400" : alert ? "text-rose-600" : "text-zinc-900"
+        }`}
+      >
+        {value}
+      </span>
+      <span className="text-xs text-zinc-500 group-hover:text-zinc-800">{label}</span>
+    </button>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const on = Boolean(value);
+  return (
+    <label className="relative inline-flex">
+      <span className="sr-only">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={toolSelect(on)}
+      >
+        <option value="">{label}: Tümü</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        className={`pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 ${
+          on ? "text-white" : "text-zinc-400"
+        }`}
+        aria-hidden
+      />
+    </label>
+  );
+}
+
+function PostRow({
+  group: g,
+  tab,
+  now,
+  canEdit,
+  busy,
+  onRetry,
+}: {
+  group: PostGroup;
+  tab: Tab;
+  now: string;
+  canEdit: boolean;
+  busy: string | null;
+  onRetry: (r: TargetRow) => void;
+}) {
+  const href = `/takvim?post=${g.postId}`;
+  const late = tab === "upcoming" && g.at < now && g.targets.some((t) => t.status === "pending");
+  const problems = g.targets.filter((t) => t.lastError && t.status !== "published");
+  const retryAt = g.targets.find((t) => t.status === "pending" && t.nextAttemptAt)?.nextAttemptAt;
+
+  return (
+    <li className="flex gap-3 px-3 py-3 sm:px-4">
+      <div className="w-11 shrink-0 pt-0.5 text-right">
+        <p className="text-sm font-semibold tabular-nums text-zinc-900">{timeFmt.format(new Date(g.at))}</p>
+        {late ? <p className="text-[10px] font-semibold text-amber-700">gecikti</p> : null}
+      </div>
+
+      <Link
+        href={href}
+        className="relative size-12 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100"
+        aria-label="İçeriği takvimde aç"
+      >
+        {g.thumb?.kind === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={g.thumb.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+        ) : (
+          <span className="flex h-full w-full items-center justify-center text-zinc-400">
+            {g.thumb?.kind === "video" ? (
+              <Film className="size-4" aria-hidden />
+            ) : (
+              <ImageOff className="size-4" aria-hidden />
+            )}
+          </span>
+        )}
+        {g.mediaCount > 1 ? (
+          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[10px] leading-4 text-white">
+            {g.mediaCount}
+          </span>
+        ) : null}
+      </Link>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-col gap-x-2 sm:flex-row sm:items-baseline">
+          <Link href={href} className="min-w-0 truncate text-sm font-semibold text-zinc-900 hover:underline">
+            {g.title}
+          </Link>
+          <Link
+            href={`/brands/${g.tenantSlug}#sosyal-hesaplar`}
+            className="shrink-0 self-start text-xs text-zinc-500 hover:text-zinc-900 hover:underline sm:self-auto"
+          >
+            {g.tenantName}
+          </Link>
+        </div>
+
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {g.targets.map((t) => (
+            <TargetChip key={t.id} target={t} />
+          ))}
+          {tab === "upcoming" && !g.autoPublish ? (
+            <span
+              className="inline-flex h-6 items-center gap-1 rounded-full bg-zinc-100 px-2 text-[11px] font-medium text-zinc-600"
+              title="İçerikte “Zamanı gelince otomatik paylaş” kapalı — yalnızca elle paylaşılır."
+            >
+              <CircleDashed className="size-3" aria-hidden />
+              Otomatik kapalı
+            </span>
+          ) : null}
+          {retryAt ? (
+            <span className="text-[11px] text-zinc-500">tekrar denenecek {shortFmt.format(new Date(retryAt))}</span>
+          ) : null}
+        </div>
+
+        {problems.length ? (
+          <ul className="mt-2 space-y-1.5">
+            {problems.map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-col gap-1.5 rounded-lg border border-rose-100 bg-rose-50/60 px-2.5 py-1.5 text-xs text-rose-800 sm:flex-row sm:items-start sm:gap-2"
+              >
+                <p className="flex min-w-0 flex-1 items-start gap-2 leading-relaxed">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  <span className="min-w-0 break-words">
+                    <span className="font-semibold">{SOCIAL_PLATFORM_LABEL[t.platform]}:</span> {t.lastError}
+                    {t.attempts > 1 ? <span className="text-rose-600/80"> · {t.attempts} deneme</span> : null}
+                  </span>
+                </p>
+                {canEdit && t.status === "failed" ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-md border border-rose-200 bg-white px-2 text-[11px] font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:opacity-50"
+                    disabled={busy !== null}
+                    onClick={() => onRetry(t)}
+                  >
+                    {busy === t.id ? (
+                      <Loader2 className="size-3 animate-spin" aria-hidden />
+                    ) : (
+                      <RotateCcw className="size-3" aria-hidden />
+                    )}
+                    Tekrar dene
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function TargetChip({ target: t }: { target: TargetRow }) {
+  const label = `${SOCIAL_PLATFORM_LABEL[t.platform]} · ${FORMAT_LABEL[t.format]}`;
+  const title = [PUBLISH_STATUS_LABEL[t.status], t.account].filter(Boolean).join(" · ");
+  const cls = `inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium ${STATUS_TONE[t.status]}`;
+  const body = (
+    <>
+      <SocialIcon platform={t.platform} brand className="size-3" />
+      {label}
+      {t.status === "publishing" ? (
+        <Loader2 className="size-3 animate-spin" aria-hidden />
+      ) : t.status === "published" ? (
+        t.permalink ? (
+          <ExternalLink className="size-3" aria-hidden />
+        ) : (
+          <Check className="size-3" aria-hidden />
+        )
+      ) : t.status === "failed" ? (
+        <X className="size-3" aria-hidden />
+      ) : null}
+      <span className="sr-only">{PUBLISH_STATUS_LABEL[t.status]}</span>
+    </>
+  );
+  return t.permalink ? (
+    <a
+      href={t.permalink}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`${title} — paylaşımı aç`}
+      className={`${cls} transition hover:border-emerald-400`}
+    >
+      {body}
+    </a>
+  ) : (
+    <span className={cls} title={title}>
+      {body}
+    </span>
+  );
+}
+
+function EmptyList({ tab, filtered, onClear }: { tab: Tab; filtered: boolean; onClear: () => void }) {
+  const text = filtered
+    ? "Bu filtrelerle eşleşen paylaşım yok."
+    : tab === "upcoming"
+      ? "Sırada paylaşım yok. Takvimde bir içeriği açıp “Otomatik paylaşım” bölümünden platform seçin."
+      : tab === "published"
+        ? "Son 30 günde paylaşım yok."
+        : "Hatalı paylaşım yok.";
+  return (
+    <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center">
+      <p className="mx-auto max-w-md text-sm text-zinc-500">{text}</p>
+      {filtered ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="mt-3 text-sm font-semibold text-zinc-900 underline-offset-2 hover:underline"
+        >
+          Filtreleri temizle
+        </button>
+      ) : tab === "upcoming" ? (
+        <Link href="/takvim" className="mt-3 inline-block text-sm font-semibold text-[#e91825] hover:underline">
+          Takvime git
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function AccountsTable({
+  rows,
+  total,
+  canEdit,
+}: {
+  rows: AccountMatrixRow[];
+  total: number;
+  canEdit: boolean;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-500">
+        {total === 0 ? "Henüz marka yok." : "Eşleşen marka yok."}
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead>
+            <tr className="border-b border-zinc-200 bg-zinc-50/70 text-left text-xs text-zinc-500">
+              <th className="px-4 py-2.5 font-medium">Marka</th>
+              {SOCIAL_PLATFORMS.map((p) => (
+                <th key={p} className="px-3 py-2.5 font-medium">
+                  <span className="inline-flex items-center gap-1.5">
+                    <SocialIcon platform={p} brand className="size-3.5" />
+                    {SOCIAL_PLATFORM_LABEL[p]}
+                    {!PUBLISHER_READY[p] ? (
+                      <span className="rounded-full bg-zinc-200/70 px-1.5 py-px text-[10px] font-medium text-zinc-500">
+                        yakında
+                      </span>
+                    ) : null}
+                  </span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {rows.map((m) => {
+              const brandHref = `/brands/${m.tenantSlug}#sosyal-hesaplar`;
+              return (
+                <tr key={m.tenantId} className="transition hover:bg-zinc-50/60">
+                  <td className="px-4 py-2.5">
+                    <Link href={brandHref} className="font-medium text-zinc-900 hover:underline">
                       {m.tenantName}
                     </Link>
-                    {!m.visible ? <span className="ml-1.5 text-xs text-zinc-400">(gizli)</span> : null}
+                    {!m.visible ? <span className="ml-1.5 text-xs text-zinc-400">gizli</span> : null}
                   </td>
                   {SOCIAL_PLATFORMS.map((p) => {
                     const a = m.accounts[p];
                     return (
-                      <td key={p} className="px-3 py-2">
+                      <td key={p} className="px-3 py-2.5">
                         {a ? (
                           <span
-                            className={`inline-flex max-w-[180px] items-center gap-1 truncate text-xs ${a.lastError ? "text-rose-700" : "text-emerald-700"}`}
+                            className={`inline-flex max-w-[180px] items-center gap-1.5 text-xs ${
+                              a.lastError ? "text-rose-700" : "text-zinc-800"
+                            }`}
                             title={a.lastError ?? a.label}
                           >
-                            {a.lastError ? <AlertTriangle className="size-3.5 shrink-0" aria-hidden /> : <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />}
+                            {a.lastError ? (
+                              <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+                            ) : (
+                              <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                <Check className="size-2.5" strokeWidth={3} aria-hidden />
+                              </span>
+                            )}
                             <span className="truncate">{a.label}</span>
                           </span>
+                        ) : PUBLISHER_READY[p] && canEdit ? (
+                          <Link
+                            href={brandHref}
+                            className="text-xs font-medium text-zinc-400 underline-offset-2 hover:text-[#e91825] hover:underline"
+                          >
+                            Bağla
+                          </Link>
                         ) : (
                           <span className="text-xs text-zinc-300">—</span>
                         )}
@@ -414,11 +915,15 @@ export default function SocialPublishingDashboard({
                     );
                   })}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="flex items-center gap-1.5 border-t border-zinc-100 bg-zinc-50/70 px-4 py-2 text-xs text-zinc-500">
+        <Info className="size-3.5 shrink-0" aria-hidden />
+        Hesap bağlamak için markayı açın → Sosyal hesaplar. Instagram, bağlı olduğu Facebook sayfasıyla birlikte gelir.
+      </p>
     </div>
   );
 }

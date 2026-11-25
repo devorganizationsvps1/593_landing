@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { btnPrimary } from "@/components/panel/ds/buttons";
+import { btnPrimary, toolChip } from "@/components/panel/ds/buttons";
 import {
   SUGGESTION_BODY_MAX,
   SUGGESTION_KINDS,
@@ -237,11 +237,7 @@ export default function SuggestionBox({
                   type="button"
                   aria-pressed={on}
                   onClick={() => setFilter(value)}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition ${
-                    on
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-                  }`}
+                  className={toolChip(on)}
                 >
                   {label}
                   <span
