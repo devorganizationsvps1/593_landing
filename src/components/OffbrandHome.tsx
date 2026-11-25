@@ -226,6 +226,21 @@ const brands = [
     logo: "/brands/bi-anne-atolyesi.png",
     href: "https://bianneatolyesi.com/",
   },
+  {
+    name: "Dr. Gözde Gökçek",
+    logo: "/brands/gozde-gokcek.png",
+    href: "https://gozdegokcek.com/",
+  },
+  {
+    name: "Op. Dr. Ökkeş Celil Gökçek",
+    logo: "/brands/celil-gokcek.png",
+    href: "https://istanbulbeyincerrahi.com/",
+  },
+  {
+    name: "Sekiz Ocakbaşı",
+    logo: "/brands/sekiz-ocakbasi.png",
+    href: "https://sekizocakbasi.com/",
+  },
 ];
 
 function smoothstep(t: number) {
