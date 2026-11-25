@@ -12,6 +12,7 @@
  */
 import { getMetaSystemUserToken } from "@/lib/integrations/tokens";
 import { publicMediaUrl } from "@/lib/social/media";
+import type { SocialAccount } from "@prisma/client";
 import { PublishError, type PublishContext, type PublishResult } from "@/lib/social/types";
 
 const VERSION = "v21.0";
@@ -470,4 +471,40 @@ export async function publishFacebook(ctx: PublishContext): Promise<PublishResul
   );
   if (!post.id) throw new PublishError("Facebook gönderisi oluşturulamadı");
   return { externalId: post.id, permalink: await fbPermalink(post.id, token) };
+}
+
+/* ───────────────────────── silme ───────────────────────── */
+
+/**
+ * Paylaşılmış gönderiyi / hikâyeyi platformdan kaldırır. Nesne zaten yoksa
+ * (elle silinmiş) başarılı sayılır. Instagram için token'da
+ * `instagram_manage_contents` izni gerekir.
+ */
+export async function deleteMetaPost(
+  account: Pick<SocialAccount, "platform" | "externalId" | "parentExternalId">,
+  externalId: string,
+): Promise<void> {
+  const pageId = account.platform === "instagram" ? account.parentExternalId : account.externalId;
+  if (!pageId) throw new PublishError("Hesabın bağlı Facebook sayfası yok — hesabı yeniden bağlayın.");
+  const token = await pageToken(pageId);
+  let res: Response;
+  try {
+    res = await fetch(`${GRAPH}/${externalId}?access_token=${encodeURIComponent(token)}`, { method: "DELETE" });
+  } catch (err) {
+    throw new PublishError(`Meta'ya ulaşılamadı: ${(err as Error).message}`);
+  }
+  const json = (await res.json().catch(() => null)) as { success?: boolean; error?: GraphErr } | null;
+  if (json?.error) {
+    // #100/33: nesne yok ya da erişilemiyor — platformda zaten silinmiş.
+    if (json.error.code === 100 && json.error.error_subcode === 33) return;
+    if (json.error.code === 10 || json.error.code === 200) {
+      throw new PublishError(
+        account.platform === "instagram"
+          ? "Silme izni yok — Meta token'ına instagram_manage_contents izni eklenmeli."
+          : "Silme izni yok — sayfada system user'ın İçerik yetkisini kontrol edin.",
+      );
+    }
+    throw errorFrom(json.error, res.status);
+  }
+  if (!res.ok || json?.success === false) throw new PublishError(`Meta silmeyi onaylamadı (HTTP ${res.status})`);
 }

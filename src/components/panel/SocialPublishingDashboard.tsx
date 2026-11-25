@@ -19,6 +19,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import BulkMetaConnect from "@/components/panel/BulkMetaConnect";
@@ -45,6 +46,9 @@ import type {
 const TZ = "Europe/Istanbul";
 
 type Tab = "upcoming" | "published" | "failed" | "accounts";
+
+/** Paylaşımı platformdan silmeyi destekleyen platformlar. */
+const DELETABLE = new Set<SocialPlatformKey>(["instagram", "facebook"]);
 
 const LEVEL_DOT: Record<HealthLevel, string> = {
   ok: "bg-emerald-500",
@@ -295,6 +299,28 @@ export default function SocialPublishingDashboard({
     }
   }
 
+  async function remove(g: PostGroup) {
+    const live = g.targets.filter((t) => t.status === "published" && DELETABLE.has(t.platform));
+    if (!live.length) return;
+    const where = live.map((t) => `${SOCIAL_PLATFORM_LABEL[t.platform]} ${FORMAT_LABEL[t.format].toLocaleLowerCase("tr")}`).join(" ve ");
+    if (!window.confirm(`“${g.title}” paylaşımı ${where} üzerinden kalıcı olarak silinsin mi?\n\nİçerik takvimde kalır, yeniden paylaşılabilir.`)) return;
+    setBusy(`del:${g.postId}`);
+    setError(null);
+    const failed: string[] = [];
+    for (const t of live) {
+      try {
+        const res = await fetch(`/api/panel/content-posts/${g.postId}/publish?platform=${t.platform}`, { method: "DELETE" });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(j.error || "Silinemedi");
+      } catch (err) {
+        failed.push(`${SOCIAL_PLATFORM_LABEL[t.platform]}: ${err instanceof Error ? err.message : "Silinemedi"}`);
+      }
+    }
+    if (failed.length) setError(failed.join(" · "));
+    setBusy(null);
+    refresh();
+  }
+
   const tabs: { key: Tab; label: string; count: number; alert?: boolean }[] = [
     { key: "upcoming", label: "Yaklaşan", count: tabCounts.upcoming },
     { key: "published", label: "Paylaşılan", count: tabCounts.published },
@@ -417,7 +443,7 @@ export default function SocialPublishingDashboard({
                   role="tab"
                   aria-selected={on}
                   onClick={() => goTab(t.key)}
-                  className={`inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition ${
+                  className={`inline-flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition focus-visible:outline-offset-[-2px] ${
                     on ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-800"
                   }`}
                 >
@@ -574,6 +600,7 @@ export default function SocialPublishingDashboard({
                       canEdit={canEdit}
                       busy={busy}
                       onRetry={retry}
+                      onRemove={remove}
                     />
                   ))}
                 </ul>
@@ -666,6 +693,7 @@ function PostRow({
   canEdit,
   busy,
   onRetry,
+  onRemove,
 }: {
   group: PostGroup;
   tab: Tab;
@@ -673,7 +701,9 @@ function PostRow({
   canEdit: boolean;
   busy: string | null;
   onRetry: (r: TargetRow) => void;
+  onRemove: (g: PostGroup) => void;
 }) {
+  const removable = canEdit && g.targets.some((t) => t.status === "published" && DELETABLE.has(t.platform));
   const href = `/takvim?post=${g.postId}`;
   const late = tab === "upcoming" && g.at < now && g.targets.some((t) => t.status === "pending");
   const problems = g.targets.filter((t) => t.lastError && t.status !== "published");
@@ -775,6 +805,23 @@ function PostRow({
           </ul>
         ) : null}
       </div>
+
+      {removable ? (
+        <button
+          type="button"
+          onClick={() => onRemove(g)}
+          disabled={busy !== null}
+          title="Paylaşımı platformdan sil"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-full px-2.5 text-xs font-medium text-zinc-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+        >
+          {busy === `del:${g.postId}` ? (
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Trash2 className="size-3.5" aria-hidden />
+          )}
+          <span className="hidden sm:inline">Sil</span>
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -846,6 +893,45 @@ function EmptyList({ tab, filtered, onClear }: { tab: Tab; filtered: boolean; on
   );
 }
 
+/** Bağlantı durumu gösterilen (yayın motoru hazır) platformlar. */
+const ACCOUNT_PLATFORMS = SOCIAL_PLATFORMS.filter((p) => PUBLISHER_READY[p]);
+const SOON_PLATFORMS = SOCIAL_PLATFORMS.filter((p) => !PUBLISHER_READY[p]);
+
+function initials(name: string): string {
+  const words = name.replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter(Boolean);
+  return (words.length > 1 ? words[0]![0]! + words[1]![0]! : (words[0] ?? "?").slice(0, 2)).toLocaleUpperCase("tr");
+}
+
+/** Görsel yüklenemezse (süresi dolmuş Meta CDN bağlantısı vb.) yedek gösterilir. */
+function Avatar({
+  src,
+  fallback,
+  className,
+}: {
+  src: string | null;
+  fallback: React.ReactNode;
+  className: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 ${className}`}>
+      {src && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </span>
+  );
+}
+
 function AccountsTable({
   rows,
   total,
@@ -862,81 +948,159 @@ function AccountsTable({
       </p>
     );
   }
+
+  const isConnected = (m: AccountMatrixRow) => ACCOUNT_PLATFORMS.some((p) => m.accounts[p]);
+  const connected = rows.filter(isConnected).length;
+  const pct = Math.round((connected / rows.length) * 100);
+
   return (
     <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      {/* özet */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-100 px-4 py-3">
+        <p className="text-sm text-zinc-600">
+          <span className="font-semibold tabular-nums text-zinc-900">{connected}</span> marka bağlı
+          {rows.length - connected > 0 ? (
+            <>
+              <span className="mx-1.5 text-zinc-300">·</span>
+              <span className="font-semibold tabular-nums text-zinc-900">{rows.length - connected}</span> bağlı değil
+            </>
+          ) : null}
+        </p>
+        <div
+          className="h-1.5 w-40 overflow-hidden rounded-full bg-zinc-100"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Bağlı marka oranı"
+        >
+          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="border-b border-zinc-200 bg-zinc-50/70 text-left text-xs text-zinc-500">
+            <tr className="text-left text-xs text-zinc-500">
               <th className="px-4 py-2.5 font-medium">Marka</th>
-              {SOCIAL_PLATFORMS.map((p) => (
+              {ACCOUNT_PLATFORMS.map((p) => (
                 <th key={p} className="px-3 py-2.5 font-medium">
                   <span className="inline-flex items-center gap-1.5">
                     <SocialIcon platform={p} brand className="size-3.5" />
                     {SOCIAL_PLATFORM_LABEL[p]}
-                    {!PUBLISHER_READY[p] ? (
-                      <span className="rounded-full bg-zinc-200/70 px-1.5 py-px text-[10px] font-medium text-zinc-500">
-                        yakında
-                      </span>
-                    ) : null}
                   </span>
                 </th>
               ))}
+              <th className="w-px px-4 py-2.5">
+                <span className="sr-only">İşlem</span>
+              </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody>
             {rows.map((m) => {
               const brandHref = `/brands/${m.tenantSlug}#sosyal-hesaplar`;
+              const linked = isConnected(m);
+              const hasError = ACCOUNT_PLATFORMS.some((p) => m.accounts[p]?.lastError);
               return (
-                <tr key={m.tenantId} className="transition hover:bg-zinc-50/60">
+                <tr key={m.tenantId} className="border-t border-zinc-100 transition hover:bg-zinc-50/70">
                   <td className="px-4 py-2.5">
-                    <Link href={brandHref} className="font-medium text-zinc-900 hover:underline">
-                      {m.tenantName}
+                    <Link href={brandHref} className="group flex min-w-0 items-center gap-2.5">
+                      <Avatar
+                        src={m.coverUrl}
+                        className="size-8 ring-1 ring-zinc-200"
+                        fallback={
+                          <span className="text-[11px] font-semibold text-zinc-500">{initials(m.tenantName)}</span>
+                        }
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-zinc-900 group-hover:underline">
+                          {m.tenantName}
+                        </span>
+                        {!m.visible ? <span className="block text-[11px] text-zinc-400">gizli marka</span> : null}
+                      </span>
                     </Link>
-                    {!m.visible ? <span className="ml-1.5 text-xs text-zinc-400">gizli</span> : null}
                   </td>
-                  {SOCIAL_PLATFORMS.map((p) => {
+
+                  {ACCOUNT_PLATFORMS.map((p) => {
                     const a = m.accounts[p];
+                    if (!a) {
+                      return (
+                        <td key={p} className="px-3 py-2.5">
+                          {linked ? (
+                            <span className="text-xs text-zinc-400" title="Facebook sayfasına bağlı profesyonel hesap yok">
+                              Sayfaya bağlı değil
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-300">—</span>
+                          )}
+                        </td>
+                      );
+                    }
+                    const body = (
+                      <>
+                        <span className="relative">
+                          <Avatar
+                            src={a.pictureUrl}
+                            className="size-6"
+                            fallback={<SocialIcon platform={p} brand className="size-3.5" />}
+                          />
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-white ${
+                              a.lastError ? "bg-rose-500" : "bg-emerald-500"
+                            }`}
+                            aria-hidden
+                          />
+                        </span>
+                        <span className={`truncate ${a.lastError ? "text-rose-700" : "text-zinc-800"}`}>{a.label}</span>
+                      </>
+                    );
+                    const cls = "inline-flex max-w-[220px] items-center gap-2 text-xs";
                     return (
                       <td key={p} className="px-3 py-2.5">
-                        {a ? (
-                          <span
-                            className={`inline-flex max-w-[180px] items-center gap-1.5 text-xs ${
-                              a.lastError ? "text-rose-700" : "text-zinc-800"
-                            }`}
-                            title={a.lastError ?? a.label}
+                        {a.href ? (
+                          <a
+                            href={a.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`${cls} rounded-full hover:underline`}
+                            title={a.lastError ?? `${a.label} — profili aç`}
                           >
-                            {a.lastError ? (
-                              <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-                            ) : (
-                              <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
-                                <Check className="size-2.5" strokeWidth={3} aria-hidden />
-                              </span>
-                            )}
-                            <span className="truncate">{a.label}</span>
-                          </span>
-                        ) : PUBLISHER_READY[p] && canEdit ? (
-                          <Link
-                            href={brandHref}
-                            className="text-xs font-medium text-zinc-400 underline-offset-2 hover:text-[#e91825] hover:underline"
-                          >
-                            Bağla
-                          </Link>
+                            {body}
+                          </a>
                         ) : (
-                          <span className="text-xs text-zinc-300">—</span>
+                          <span className={cls} title={a.lastError ?? a.label}>
+                            {body}
+                          </span>
                         )}
                       </td>
                     );
                   })}
+
+                  <td className="px-4 py-2.5 text-right">
+                    {canEdit && (!linked || hasError) ? (
+                      <Link href={brandHref} className={`${toolChip(false)} !h-7`}>
+                        {hasError ? "Yeniden bağla" : "Bağla"}
+                      </Link>
+                    ) : null}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <p className="flex items-center gap-1.5 border-t border-zinc-100 bg-zinc-50/70 px-4 py-2 text-xs text-zinc-500">
+
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-zinc-100 bg-zinc-50/70 px-4 py-2.5 text-xs text-zinc-500">
         <Info className="size-3.5 shrink-0" aria-hidden />
-        Hesap bağlamak için markayı açın → Sosyal hesaplar. Instagram, bağlı olduğu Facebook sayfasıyla birlikte gelir.
+        Instagram, bağlı olduğu Facebook sayfasıyla birlikte gelir.
+        {SOON_PLATFORMS.length ? (
+          <span className="inline-flex items-center gap-1">
+            {SOON_PLATFORMS.map((p) => (
+              <SocialIcon key={p} platform={p} brand className="size-3" />
+            ))}
+            {SOON_PLATFORMS.map((p) => SOCIAL_PLATFORM_LABEL[p]).join(" ve ")} bağlantısı sonraki aşamada.
+          </span>
+        ) : null}
       </p>
     </div>
   );

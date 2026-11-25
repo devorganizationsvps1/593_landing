@@ -304,8 +304,27 @@ export type AccountMatrixRow = {
   tenantName: string;
   tenantSlug: string;
   visible: boolean;
-  accounts: Partial<Record<SocialPlatformKey, { label: string; status: string; lastError: string | null }>>;
+  coverUrl: string | null;
+  accounts: Partial<
+    Record<
+      SocialPlatformKey,
+      {
+        label: string;
+        status: string;
+        lastError: string | null;
+        pictureUrl: string | null;
+        /** Profil / sayfa bağlantısı. */
+        href: string | null;
+      }
+    >
+  >;
 };
+
+function profileHref(platform: string, externalId: string, username: string | null): string | null {
+  if (platform === "instagram") return username ? `https://www.instagram.com/${username}/` : null;
+  if (platform === "facebook") return `https://www.facebook.com/${externalId}`;
+  return null;
+}
 
 export async function loadAccountMatrix(): Promise<AccountMatrixRow[]> {
   const tenants = await prisma.tenant.findMany({
@@ -315,7 +334,18 @@ export async function loadAccountMatrix(): Promise<AccountMatrixRow[]> {
       name: true,
       slug: true,
       visible: true,
-      socialAccounts: { select: { platform: true, name: true, username: true, status: true, lastError: true } },
+      coverUrl: true,
+      socialAccounts: {
+        select: {
+          platform: true,
+          name: true,
+          username: true,
+          status: true,
+          lastError: true,
+          pictureUrl: true,
+          externalId: true,
+        },
+      },
     },
     orderBy: [{ visible: "desc" }, { name: "asc" }],
   });
@@ -324,10 +354,17 @@ export async function loadAccountMatrix(): Promise<AccountMatrixRow[]> {
     tenantName: t.name,
     tenantSlug: t.slug,
     visible: t.visible,
+    coverUrl: t.coverUrl,
     accounts: Object.fromEntries(
       t.socialAccounts.map((a) => [
         a.platform,
-        { label: a.username ? `@${a.username}` : a.name, status: a.status, lastError: a.lastError },
+        {
+          label: a.username ? `@${a.username}` : a.name,
+          status: a.status,
+          lastError: a.lastError,
+          pictureUrl: a.pictureUrl,
+          href: profileHref(a.platform, a.externalId, a.username),
+        },
       ]),
     ),
   }));

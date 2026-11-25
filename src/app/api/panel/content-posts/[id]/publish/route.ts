@@ -8,7 +8,9 @@ import {
   PRIVACY_OPTIONS,
   type SocialPlatformKey,
 } from "@/lib/social/formats";
+import { deleteMetaPost } from "@/lib/social/meta";
 import { publishPostNow } from "@/lib/social/publisher";
+import { PublishError } from "@/lib/social/types";
 import { loadPublishState } from "@/lib/social/state";
 
 export const runtime = "nodejs";
@@ -177,4 +179,58 @@ export async function POST(request: Request, ctx: Ctx) {
     }
   });
   return NextResponse.json({ ok: true, queued: pendingCount });
+}
+
+/**
+ * DELETE ?platform= — paylaşılmış hedefi platformdan kaldırır ve hedef kaydını
+ * siler. İçeriğin yayında başka hedefi kalmazsa içerik "Onayda"ya döner
+ * (takvimde kalır, yeniden paylaşılabilir).
+ */
+export async function DELETE(request: Request, ctx: Ctx) {
+  const { session, error } = await requirePermissionApi("brands.edit");
+  if (error || !session) return error;
+  const { id } = await ctx.params;
+  const platform = new URL(request.url).searchParams.get("platform");
+  if (platform !== "instagram" && platform !== "facebook") {
+    return NextResponse.json({ error: "Bu platformdan silme desteklenmiyor" }, { status: 400 });
+  }
+  const target = await prisma.contentPostTarget.findUnique({
+    where: { postId_platform: { postId: id, platform } },
+    include: { account: true, post: { select: { tenantId: true, title: true, status: true } } },
+  });
+  if (!target || target.status !== "published" || !target.externalId) {
+    return NextResponse.json({ error: "Silinecek paylaşım yok" }, { status: 404 });
+  }
+  const account =
+    target.account ??
+    (await prisma.socialAccount.findUnique({
+      where: { tenantId_platform: { tenantId: target.post.tenantId, platform } },
+    }));
+  if (!account) {
+    return NextResponse.json({ error: "Bu markaya bağlı hesap yok" }, { status: 400 });
+  }
+
+  try {
+    await deleteMetaPost(account, target.externalId);
+  } catch (err) {
+    const msg = err instanceof PublishError ? err.message : "Meta'da silinemedi";
+    if (!(err instanceof PublishError)) console.error("[social-delete]", err);
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.contentPostTarget.delete({ where: { id: target.id } });
+    const stillLive = await tx.contentPostTarget.count({ where: { postId: id, status: "published" } });
+    if (stillLive === 0 && target.post.status === "published") {
+      await tx.contentPost.update({ where: { id }, data: { status: "review" } });
+    }
+  });
+  await audit(session, {
+    action: "content_post.unpublish",
+    entity: "content_post",
+    entityId: id,
+    tenantId: target.post.tenantId,
+    summary: `Paylaşım silindi (${platform}): ${target.post.title || id}`,
+  });
+  return NextResponse.json({ ok: true });
 }
