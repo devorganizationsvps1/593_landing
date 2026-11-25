@@ -9,6 +9,9 @@ export class PublishError extends Error {
   constructor(
     message: string,
     readonly retryable = false,
+    /** Platform hata kodu / alt kodu (Meta: code, error_subcode). */
+    readonly code?: number,
+    readonly subcode?: number,
   ) {
     super(message);
     this.name = "PublishError";

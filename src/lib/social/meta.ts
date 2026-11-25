@@ -46,7 +46,7 @@ function errorFrom(err: GraphErr, status: number): PublishError {
   const msg = err.error_user_msg || err.message || `Meta HTTP ${status}`;
   const code = err.code != null ? ` (#${err.code}${err.error_subcode ? `/${err.error_subcode}` : ""})` : "";
   const retryable = Boolean(err.is_transient) || (err.code != null && RETRYABLE_CODES.has(err.code));
-  return new PublishError(`${msg}${code}`, retryable);
+  return new PublishError(`${msg}${code}`, retryable, err.code, err.error_subcode);
 }
 
 /**
@@ -282,6 +282,35 @@ async function igBuildContainer(ctx: PublishContext, igId: string, token: string
   return igCreate(igId, token, { media_type: "CAROUSEL", children: children.join(","), caption });
 }
 
+/**
+ * Container FINISHED olsa da Meta (özellikle hikâyelerde) yayını birkaç saniye
+ * "medya bulunamıyor" (#24/2207006) ya da "hazır değil" (#9007) diye reddedebilir.
+ * Bu hatalarda paylaşım yapılmamıştır: kısa bekleyip container durumunu kontrol
+ * ederek tekrar denenir (PUBLISHED olduysa çift paylaşım yapılmaz).
+ */
+function igNotReady(err: unknown): boolean {
+  return err instanceof PublishError && (err.subcode === 2207006 || err.code === 9007 || err.subcode === 2207027);
+}
+
+async function igPublish(igId: string, containerId: string, token: string): Promise<{ id?: string }> {
+  const delays = [4000, 8000, 15000];
+  for (let i = 0; ; i++) {
+    try {
+      return await call<{ id?: string }>(
+        "POST",
+        `${GRAPH}/${igId}/media_publish`,
+        { access_token: token, creation_id: containerId },
+        { final: true },
+      );
+    } catch (err) {
+      if (!igNotReady(err) || i >= delays.length) throw err;
+      await sleep(delays[i]!);
+      const s = await igContainerStatus(containerId, token);
+      if (s.status_code === "PUBLISHED") return { id: undefined };
+    }
+  }
+}
+
 export async function publishInstagram(ctx: PublishContext): Promise<PublishResult> {
   const pageId = ctx.account.parentExternalId;
   if (!pageId) throw new PublishError("Instagram hesabının bağlı Facebook sayfası yok — hesabı yeniden bağlayın.");
@@ -309,12 +338,10 @@ export async function publishInstagram(ctx: PublishContext): Promise<PublishResu
     return { externalId: containerId, permalink: null };
   }
 
-  const pub = await call<{ id?: string }>(
-    "POST",
-    `${GRAPH}/${igId}/media_publish`,
-    { access_token: token, creation_id: containerId },
-    { final: true },
-  );
+  const pub = await igPublish(igId, containerId, token);
+  if (pub.id === undefined && (await igContainerStatus(containerId, token)).status_code === "PUBLISHED") {
+    return { externalId: containerId, permalink: null };
+  }
   if (!pub.id) throw new PublishError("Instagram paylaşımı onaylanmadı; platformda kontrol edin.");
   let permalink: string | null = null;
   try {

@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Film,
   ImageOff,
+  Link2,
   Info,
   Loader2,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import BulkMetaConnect from "@/components/panel/BulkMetaConnect";
 import { toolChip, toolField, toolPrimary, toolSelect } from "@/components/panel/ds/buttons";
 import { SocialIcon } from "@/components/panel/ds/social-icons";
 import {
@@ -179,6 +181,7 @@ export default function SocialPublishingDashboard({
   const [platform, setPlatform] = useState<SocialPlatformKey | "">("");
   const [todayOnly, setTodayOnly] = useState(false);
   const [onlyMissing, setOnlyMissing] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -254,6 +257,7 @@ export default function SocialPublishingDashboard({
     [matrix, onlyMissing, q],
   );
   const metaConnected = matrix.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
+  const unconnected = useMemo(() => matrix.filter((m) => !m.accounts.facebook), [matrix]);
 
   const listFiltersActive = Boolean(tenantId || platform || todayOnly);
   const hasActiveFilters = Boolean(q) || (tab === "accounts" ? onlyMissing : listFiltersActive);
@@ -456,14 +460,22 @@ export default function SocialPublishingDashboard({
           </label>
 
           {tab === "accounts" ? (
-            <button
-              type="button"
-              aria-pressed={onlyMissing}
-              onClick={() => setOnlyMissing((v) => !v)}
-              className={toolChip(onlyMissing, "amber")}
-            >
-              Meta eksik olanlar
-            </button>
+            <>
+              <button
+                type="button"
+                aria-pressed={onlyMissing}
+                onClick={() => setOnlyMissing((v) => !v)}
+                className={toolChip(onlyMissing, "amber")}
+              >
+                Meta eksik olanlar
+              </button>
+              {canEdit && unconnected.length > 0 ? (
+                <button type="button" onClick={() => setBulkOpen(true)} className={toolPrimary}>
+                  <Link2 className="size-3.5" aria-hidden />
+                  Toplu bağla
+                </button>
+              ) : null}
+            </>
           ) : (
             <>
               <FilterSelect
@@ -531,6 +543,8 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {/* ── içerik ── */}
+      {bulkOpen ? <BulkMetaConnect rows={unconnected} onClose={() => setBulkOpen(false)} /> : null}
+
       {tab === "accounts" ? (
         <AccountsTable rows={matrixRows} total={matrix.length} canEdit={canEdit} />
       ) : days.length === 0 ? (
