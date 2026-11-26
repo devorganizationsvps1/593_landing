@@ -23,9 +23,12 @@ type RowState = "idle" | "busy" | "done" | "error";
  */
 export default function BulkMetaConnect({
   rows,
+  takenPageIds,
   onClose,
   onChanged,
 }: {
+  /** Başka markaya zaten bağlı sayfalar — öneriye girmez (elle seçilebilir). */
+  takenPageIds: string[];
   /** Facebook'u bağlı olmayan markalar (görünürler önce). */
   rows: AccountMatrixRow[];
   onClose: () => void;
@@ -54,9 +57,10 @@ export default function BulkMetaConnect({
         if (!res.ok) throw new Error(j.error || "Meta sayfaları alınamadı");
         if (!alive) return;
         const list = (j.pages ?? []).filter((p) => p.canPost);
+        const taken = new Set(takenPageIds);
         const s = suggestPages(
           rows.map((r) => ({ slug: r.tenantSlug, name: r.tenantName })),
-          list,
+          list.filter((p) => !taken.has(p.pageId)),
         );
         setPages(list);
         setChoice(
@@ -73,7 +77,7 @@ export default function BulkMetaConnect({
     return () => {
       alive = false;
     };
-  }, [rows]);
+  }, [rows, takenPageIds]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,6 +86,9 @@ export default function BulkMetaConnect({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, running]);
+
+  /** Gizli markalar yalnızca bir sayfayla eşleştiyse listelenir (ör. ajansın kendi markası). */
+  const shown = useMemo(() => rows.filter((r) => r.visible || suggested.has(r.tenantSlug)), [rows, suggested]);
 
   const pageById = useMemo(
     () => new Map((pages ?? []).map((p) => [p.pageId, p])),
@@ -179,13 +186,13 @@ export default function BulkMetaConnect({
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Meta sayfaları alınıyor…
             </p>
-          ) : rows.length === 0 ? (
+          ) : shown.length === 0 ? (
             <p className="px-5 py-14 text-center text-sm text-zinc-500">
               Tüm markaların Meta hesabı bağlı.
             </p>
           ) : (
             <ul className="divide-y divide-zinc-100">
-              {rows.map((r) => {
+              {shown.map((r) => {
                 const id = choice[r.tenantSlug] ?? "";
                 const page = id ? pageById.get(id) : undefined;
                 const st = state[r.tenantSlug];

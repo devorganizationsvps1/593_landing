@@ -323,6 +323,8 @@ export type AccountMatrixRow = {
         status: string;
         lastError: string | null;
         pictureUrl: string | null;
+        /** Platformdaki kimlik (Facebook: sayfa id). */
+        externalId: string;
         /** Profil / sayfa bağlantısı. */
         href: string | null;
       }
@@ -338,7 +340,6 @@ function profileHref(platform: string, externalId: string, username: string | nu
 
 export async function loadAccountMatrix(): Promise<AccountMatrixRow[]> {
   const tenants = await prisma.tenant.findMany({
-    where: { OR: [{ visible: true }, { socialAccounts: { some: {} } }] },
     select: {
       id: true,
       name: true,
@@ -373,6 +374,7 @@ export async function loadAccountMatrix(): Promise<AccountMatrixRow[]> {
           status: a.status,
           lastError: a.lastError,
           pictureUrl: a.pictureUrl,
+          externalId: a.externalId,
           href: profileHref(a.platform, a.externalId, a.username),
         },
       ]),

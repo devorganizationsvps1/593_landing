@@ -259,17 +259,27 @@ export default function SocialPublishingDashboard({
     return out;
   }, [groups]);
 
+  /** Tabloda: görünür markalar + hesabı bağlı gizli markalar. */
+  const listed = useMemo(
+    () => matrix.filter((m) => m.visible || Object.keys(m.accounts).length > 0),
+    [matrix],
+  );
   const matrixRows = useMemo(
     () =>
-      matrix.filter(
+      listed.filter(
         (m) =>
           (!onlyMissing || !m.accounts.instagram || !m.accounts.facebook) &&
           (!q || m.tenantName.toLocaleLowerCase("tr").includes(q)),
       ),
-    [matrix, onlyMissing, q],
+    [listed, onlyMissing, q],
   );
-  const metaConnected = matrix.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
+  const metaConnected = listed.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
+  // Toplu bağla gizli markaları da alır; pencerede yalnızca sayfa eşleşmesi olanlar gösterilir.
   const unconnected = useMemo(() => matrix.filter((m) => !m.accounts.facebook), [matrix]);
+  const takenPageIds = useMemo(
+    () => matrix.flatMap((m) => (m.accounts.facebook ? [m.accounts.facebook.externalId] : [])),
+    [matrix],
+  );
   const metaBrands = useMemo(
     () =>
       matrix
@@ -477,7 +487,7 @@ export default function SocialPublishingDashboard({
                       t.alert ? "font-semibold text-rose-600" : on ? "text-zinc-500" : "text-zinc-400"
                     }`}
                   >
-                    {t.key === "accounts" ? `${t.count}/${matrix.length}` : t.count}
+                    {t.key === "accounts" ? `${t.count}/${listed.length}` : t.count}
                   </span>
                 </button>
               );
@@ -593,7 +603,12 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {/* ── içerik ── */}
-      {bulkOpen ? <BulkMetaConnect rows={unconnected} onClose={() => setBulkOpen(false)} onChanged={refresh} /> : null}
+      {bulkOpen ? <BulkMetaConnect
+          rows={unconnected}
+          takenPageIds={takenPageIds}
+          onClose={() => setBulkOpen(false)}
+          onChanged={refresh}
+        /> : null}
       {linkOpen ? <LinkCalendarPosts onClose={() => setLinkOpen(false)} onChanged={refresh} /> : null}
       {compose ? (
         <SocialComposer
@@ -606,7 +621,7 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {tab === "accounts" ? (
-        <AccountsTable rows={matrixRows} total={matrix.length} canEdit={canEdit} />
+        <AccountsTable rows={matrixRows} total={listed.length} canEdit={canEdit} />
       ) : days.length === 0 ? (
         <EmptyList tab={tab} filtered={hasActiveFilters} onClear={clearFilters} />
       ) : (
