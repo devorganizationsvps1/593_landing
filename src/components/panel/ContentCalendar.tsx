@@ -1271,7 +1271,7 @@ export default function ContentCalendar({
       {/* ── gün listesi ("+N daha") ── */}
       {dayOpen && !draft ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 m-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
           role="presentation"
           onClick={() => setDayOpen(null)}
         >
@@ -1345,7 +1345,7 @@ export default function ContentCalendar({
       {/* ── içerik detayı / yeni içerik ── */}
       {draft ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 m-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
           role="presentation"
           onMouseDown={(e) => {
             backdropPressed.current = e.target === e.currentTarget;

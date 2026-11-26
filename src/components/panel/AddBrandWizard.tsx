@@ -416,7 +416,7 @@ export default function AddBrandWizard({
       </div>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-900/40 p-4 sm:items-center">
+        <div className="fixed inset-0 m-0 z-50 flex items-end justify-center bg-zinc-900/40 p-4 sm:items-center">
           <div
             role="dialog"
             aria-modal="true"

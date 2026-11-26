@@ -302,7 +302,7 @@ function SyncStatusDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-900/40 p-4"
+      className="fixed inset-0 m-0 z-[80] flex items-center justify-center bg-zinc-900/40 p-4"
       role="presentation"
       onClick={phase === "done" ? onClose : undefined}
     >

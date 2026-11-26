@@ -292,7 +292,7 @@ function PostDialog({ post, onClose }: { post: ClientCalendarPost; onClose: () =
   const hasMedia = post.media.length > 0 || post.mediaUrls.length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="presentation">
+    <div className="fixed inset-0 m-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="presentation">
       <button type="button" aria-label="Kapat" className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         role="dialog"
