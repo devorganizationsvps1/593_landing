@@ -286,6 +286,8 @@ export default function SocialPublishingDashboard({
       ),
     [listed, onlyMissing, q],
   );
+  /** Kartlarda marka logosu. */
+  const brandCover = useMemo(() => new Map(matrix.map((m) => [m.tenantId, m.coverUrl])), [matrix]);
   const metaConnected = listed.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
   // Toplu bağla gizli markaları da alır; pencerede yalnızca sayfa eşleşmesi olanlar gösterilir.
   const unconnected = useMemo(() => matrix.filter((m) => !m.accounts.facebook), [matrix]);
@@ -745,6 +747,7 @@ export default function SocialPublishingDashboard({
                     <PostRow
                       key={g.postId}
                       group={g}
+                      brandCover={brandCover.get(g.tenantId) ?? null}
                       tab={tab}
                       now={now}
                       canEdit={canEdit}
@@ -842,6 +845,7 @@ function FilterSelect({
 
 function PostRow({
   group: g,
+  brandCover,
   tab,
   now,
   canEdit,
@@ -854,6 +858,7 @@ function PostRow({
   onOpen,
 }: {
   group: PostGroup;
+  brandCover: string | null;
   tab: Tab;
   now: string;
   canEdit: boolean;
@@ -919,21 +924,28 @@ function PostRow({
       </button>
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-col gap-x-2 sm:flex-row sm:items-baseline">
-          <button
-            type="button"
-            onClick={() => onOpen(g.postId)}
-            className="min-w-0 truncate text-left text-sm font-semibold text-zinc-900 hover:underline"
-          >
-            {g.title}
-          </button>
-          <Link
-            href={`/brands/${g.tenantSlug}#sosyal-hesaplar`}
-            className="shrink-0 self-start text-xs text-zinc-500 hover:text-zinc-900 hover:underline sm:self-auto"
-          >
+        {/* marka — kartın ilk okunan bilgisi */}
+        <Link
+          href={`/brands/${g.tenantSlug}#sosyal-hesaplar`}
+          className="group/brand inline-flex max-w-full items-center gap-2 rounded-full py-0.5 pr-2"
+          title={`${g.tenantName} — marka sayfası`}
+        >
+          <Avatar
+            src={brandCover}
+            className="size-6 ring-1 ring-zinc-200"
+            fallback={<span className="text-[10px] font-semibold text-zinc-600">{initials(g.tenantName)}</span>}
+          />
+          <span className="truncate text-[13px] font-bold tracking-tight text-[#141111] group-hover/brand:text-[#e91825]">
             {g.tenantName}
-          </Link>
-        </div>
+          </span>
+        </Link>
+        <button
+          type="button"
+          onClick={() => onOpen(g.postId)}
+          className="mt-0.5 block max-w-full truncate text-left text-sm text-zinc-600 hover:text-zinc-900 hover:underline"
+        >
+          {g.title}
+        </button>
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {g.targets.map((t) => (
