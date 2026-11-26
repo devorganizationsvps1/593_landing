@@ -174,6 +174,7 @@ async function flagUnapproved(now: Date): Promise<void> {
       lastError: null,
       post: {
         autoPublish: true,
+        socialDraftAt: null,
         scheduledAt: { lte: now },
         status: { notIn: [...AUTO_PUBLISH_STATUSES, "published"] },
       },
@@ -216,7 +217,7 @@ async function flagUnapproved(now: Date): Promise<void> {
       where: {
         status: "pending",
         lastError: UNAPPROVED_NOTE,
-        post: { tenantId, status: { notIn: AUTO_PUBLISH_STATUSES } },
+        post: { tenantId, socialDraftAt: null, status: { notIn: AUTO_PUBLISH_STATUSES } },
       },
     });
     if (still === 0) await resolveOpenAlertsOfType(tenantId, UNAPPROVED_ALERT, "İçerikler onaylandı ya da kaldırıldı");
@@ -243,7 +244,12 @@ export async function runDuePublishes(): Promise<{ claimed: number }> {
           {
             status: "pending",
             AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }],
-            post: { autoPublish: true, scheduledAt: { lte: now }, status: { in: AUTO_PUBLISH_STATUSES } },
+            post: {
+              autoPublish: true,
+              socialDraftAt: null,
+              scheduledAt: { lte: now },
+              status: { in: AUTO_PUBLISH_STATUSES },
+            },
           },
           { status: "publishing", lockedAt: { lt: staleBefore() } },
         ],

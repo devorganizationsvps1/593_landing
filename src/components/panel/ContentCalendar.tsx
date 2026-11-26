@@ -1988,6 +1988,7 @@ function publishBadge(
   if (t.every((x) => x.status === "published")) {
     return { Icon: CheckCircle2, tone: "text-emerald-600", label: `Paylaşıldı: ${names("published")}` };
   }
+  if (post.socialDraft) return { Icon: Send, tone: "text-zinc-400", label: "Paylaşım taslakta" };
   if (!post.autoPublish) return { Icon: Send, tone: "text-zinc-400", label: "Elle paylaşılacak" };
   if (post.status !== "approved") {
     return { Icon: Clock, tone: "text-sky-600", label: "Otomatik paylaşım onay bekliyor" };

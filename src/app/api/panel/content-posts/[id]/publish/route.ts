@@ -182,15 +182,86 @@ export async function POST(request: Request, ctx: Ctx) {
 }
 
 /**
- * DELETE ?platform= — paylaşılmış hedefi platformdan kaldırır ve hedef kaydını
- * siler. İçeriğin yayında başka hedefi kalmazsa içerik "Onayda"ya döner
- * (takvimde kalır, yeniden paylaşılabilir).
+ * PATCH { draft: boolean } — "Taslağa al" / "Geri al". Taslaktaki içeriğe
+ * zamanlayıcı dokunmaz; geri alınınca hedefler kaldığı yerden sıraya döner.
+ */
+export async function PATCH(request: Request, ctx: Ctx) {
+  const { session, error } = await requirePermissionApi("brands.edit");
+  if (error || !session) return error;
+  const { id } = await ctx.params;
+  let body: { draft?: unknown } = {};
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON gerekli" }, { status: 400 });
+  }
+  if (typeof body.draft !== "boolean") {
+    return NextResponse.json({ error: "draft alanı gerekli" }, { status: 400 });
+  }
+  const post = await prisma.contentPost.findUnique({
+    where: { id },
+    select: { id: true, tenantId: true, title: true, targets: { select: { status: true } } },
+  });
+  if (!post) return NextResponse.json({ error: "İçerik bulunamadı" }, { status: 404 });
+  if (body.draft && post.targets.some((t) => t.status === "publishing")) {
+    return NextResponse.json({ error: "Paylaşım sürüyor; bitince taslağa alabilirsiniz" }, { status: 409 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.contentPost.update({ where: { id }, data: { socialDraftAt: body.draft ? new Date() : null } });
+    if (!body.draft) {
+      // Geri alınan içerik eski hata / onay notuyla gelmesin; yeniden denenir.
+      await tx.contentPostTarget.updateMany({
+        where: { postId: id, status: { in: ["pending", "failed"] } },
+        data: { status: "pending", attempts: 0, nextAttemptAt: null, lastError: null, progressRef: null },
+      });
+    }
+  });
+  await audit(session, {
+    action: body.draft ? "content_post.publish_draft" : "content_post.publish_restore",
+    entity: "content_post",
+    entityId: id,
+    tenantId: post.tenantId,
+    summary: `${body.draft ? "Paylaşım taslağa alındı" : "Paylaşım taslaktan geri alındı"}: ${post.title || id}`,
+  });
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * DELETE — iki kullanım:
+ * - `?platform=` paylaşılmış hedefi platformdan kaldırır ve hedef kaydını siler.
+ *   İçeriğin yayında başka hedefi kalmazsa içerik "Onayda"ya döner.
+ * - parametresiz: yayınlanmamış hedefleri (paylaşım planını) siler. İçerik
+ *   takvimde kalır; isterse yeniden bağlanabilir.
  */
 export async function DELETE(request: Request, ctx: Ctx) {
   const { session, error } = await requirePermissionApi("brands.edit");
   if (error || !session) return error;
   const { id } = await ctx.params;
   const platform = new URL(request.url).searchParams.get("platform");
+  if (platform === null) {
+    const post = await prisma.contentPost.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, title: true },
+    });
+    if (!post) return NextResponse.json({ error: "İçerik bulunamadı" }, { status: 404 });
+    const removed = await prisma.$transaction(async (tx) => {
+      const r = await tx.contentPostTarget.deleteMany({
+        where: { postId: id, status: { in: ["pending", "failed"] } },
+      });
+      await tx.contentPost.update({ where: { id }, data: { socialDraftAt: null, autoPublish: false } });
+      return r.count;
+    });
+    if (removed === 0) return NextResponse.json({ error: "Silinecek paylaşım planı yok" }, { status: 404 });
+    await audit(session, {
+      action: "content_post.publish_unlink",
+      entity: "content_post",
+      entityId: id,
+      tenantId: post.tenantId,
+      summary: `Paylaşım planı silindi (${removed} hedef): ${post.title || id}`,
+    });
+    return NextResponse.json({ ok: true, removed });
+  }
   if (platform !== "instagram" && platform !== "facebook") {
     return NextResponse.json({ error: "Bu platformdan silme desteklenmiyor" }, { status: 400 });
   }

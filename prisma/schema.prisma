@@ -1039,6 +1039,9 @@ model ContentPost {
   boardCard   BoardCard?          @relation(fields: [boardCardId], references: [id], onDelete: SetNull)
   /// true → `scheduledAt` geldiğinde hedef platformlara otomatik paylaşılır.
   autoPublish Boolean             @default(false)
+  /// Paylaşımlar'da "Taslağa al": dolu → paylaşım arşivde bekler, zamanlayıcı
+  /// dokunmaz. Geri alınınca (null) kaldığı yerden sıraya döner.
+  socialDraftAt DateTime?
   media       ContentMedia[]
   targets     ContentPostTarget[]
 

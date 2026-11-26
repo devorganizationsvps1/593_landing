@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   CalendarDays,
   Check,
   ChevronDown,
@@ -16,6 +18,7 @@ import {
   Link2,
   Info,
   Loader2,
+  PencilLine,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -49,7 +52,7 @@ import type {
 
 const TZ = "Europe/Istanbul";
 
-type Tab = "upcoming" | "published" | "failed" | "accounts";
+type Tab = "upcoming" | "published" | "failed" | "draft" | "accounts";
 
 /** Paylaşımı platformdan silmeyi destekleyen platformlar. */
 const DELETABLE = new Set<SocialPlatformKey>(["instagram", "facebook"]);
@@ -120,14 +123,19 @@ type PostGroup = {
   mediaCount: number;
   autoPublish: boolean;
   approved: boolean;
+  /** Taslakta (arşivde) mı. */
+  draft: boolean;
   /** Sıralama ve gün başlığı için kullanılan an. */
   at: string;
   targets: TargetRow[];
 };
 
+/** Taslaktaki içerik paylaşılmış hedefleri dışında yalnızca "Taslak"ta görünür. */
 function inTab(t: TargetRow, tab: Tab): boolean {
-  if (tab === "upcoming") return t.status === "pending" || t.status === "publishing";
   if (tab === "published") return t.status === "published";
+  if (tab === "draft") return Boolean(t.draftAt) && t.status !== "published";
+  if (t.draftAt) return false;
+  if (tab === "upcoming") return t.status === "pending" || t.status === "publishing";
   if (tab === "failed") return t.status === "failed";
   return false;
 }
@@ -151,6 +159,7 @@ function groupByPost(rows: TargetRow[], tab: Tab): PostGroup[] {
         mediaCount: r.mediaCount,
         autoPublish: r.autoPublish,
         approved: r.approved,
+        draft: Boolean(r.draftAt),
         at,
         targets: [r],
       });
@@ -225,11 +234,12 @@ export default function SocialPublishingDashboard({
   const q = query.trim().toLocaleLowerCase("tr");
 
   const tabCounts = useMemo(() => {
-    const c = { upcoming: 0, published: 0, failed: 0 };
+    const c = { upcoming: 0, published: 0, failed: 0, draft: 0 };
     for (const t of targets) {
-      if (inTab(t, "upcoming")) c.upcoming++;
-      else if (t.status === "published") c.published++;
+      if (t.status === "published") c.published++;
+      else if (t.draftAt) c.draft++;
       else if (t.status === "failed") c.failed++;
+      else c.upcoming++;
     }
     return c;
   }, [targets]);
@@ -347,6 +357,48 @@ export default function SocialPublishingDashboard({
     }
   }
 
+  /** Taslağa al / taslaktan geri al — taslaktaki içeriğe zamanlayıcı dokunmaz. */
+  async function setDraft(g: PostGroup, draft: boolean) {
+    setBusy(`draft:${g.postId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/panel/content-posts/${g.postId}/publish`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "Güncellenemedi");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Güncellenemedi");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Yayınlanmamış paylaşım planını siler; içerik takvimde kalır. */
+  async function removePlan(g: PostGroup) {
+    if (
+      !window.confirm(
+        `“${g.title}” paylaşım planı silinsin mi?\n\nİçerik takvimde kalır; isterseniz “Takvimdeki içerikleri bağla” ile yeniden ekleyebilirsiniz.`,
+      )
+    )
+      return;
+    setBusy(`del:${g.postId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/panel/content-posts/${g.postId}/publish`, { method: "DELETE" });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "Silinemedi");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Silinemedi");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function remove(g: PostGroup) {
     const live = g.targets.filter((t) => t.status === "published" && DELETABLE.has(t.platform));
     if (!live.length) return;
@@ -373,6 +425,7 @@ export default function SocialPublishingDashboard({
     { key: "upcoming", label: "Yaklaşan", count: tabCounts.upcoming },
     { key: "published", label: "Paylaşılan", count: tabCounts.published },
     { key: "failed", label: "Hatalı", count: tabCounts.failed, alert: tabCounts.failed > 0 },
+    { key: "draft", label: "Taslak", count: tabCounts.draft },
     { key: "accounts", label: "Hesaplar", count: metaConnected },
   ];
 
@@ -680,6 +733,8 @@ export default function SocialPublishingDashboard({
                       busy={busy}
                       onRetry={retry}
                       onRemove={remove}
+                      onRemovePlan={removePlan}
+                      onDraft={setDraft}
                       onApprove={approve}
                       onOpen={(id) => setCompose({ postId: id })}
                     />
@@ -775,6 +830,8 @@ function PostRow({
   busy,
   onRetry,
   onRemove,
+  onRemovePlan,
+  onDraft,
   onApprove,
   onOpen,
 }: {
@@ -785,23 +842,37 @@ function PostRow({
   busy: string | null;
   onRetry: (r: TargetRow) => void;
   onRemove: (g: PostGroup) => void;
+  onRemovePlan: (g: PostGroup) => void;
+  onDraft: (g: PostGroup, draft: boolean) => void;
   onApprove: (g: PostGroup) => void;
   /** Paylaşım penceresinde aç. */
   onOpen: (postId: string) => void;
 }) {
   const removable = canEdit && g.targets.some((t) => t.status === "published" && DELETABLE.has(t.platform));
+  /** Yayınlanmamış plan silinebilir / taslağa alınabilir (paylaşılırken değil). */
+  const planned = g.targets.some((t) => t.status === "pending" || t.status === "failed");
+  const inFlight = g.targets.some((t) => t.status === "publishing");
   const late = tab === "upcoming" && g.at < now && g.targets.some((t) => t.status === "pending");
-  const unapproved = g.targets.filter((t) => t.status === "pending" && t.lastError === UNAPPROVED_NOTE);
+  const unapproved =
+    tab === "draft" ? [] : g.targets.filter((t) => t.status === "pending" && t.lastError === UNAPPROVED_NOTE);
   const problems = g.targets.filter(
     (t) => t.lastError && t.status !== "published" && t.lastError !== UNAPPROVED_NOTE,
   );
   const retryAt = g.targets.find((t) => t.status === "pending" && t.nextAttemptAt)?.nextAttemptAt;
 
   return (
-    <li className="flex gap-3 px-3 py-3 sm:px-4">
+    <li
+      className="group/row flex cursor-pointer gap-3 px-3 py-3 transition hover:bg-zinc-50/80 sm:px-4"
+      onClick={(e) => {
+        // İç düğme / bağlantılar kendi işini yapar; kartın geri kalanı pencereyi açar.
+        if ((e.target as HTMLElement).closest("a, button")) return;
+        onOpen(g.postId);
+      }}
+    >
       <div className="w-11 shrink-0 pt-0.5 text-right">
         <p className="text-sm font-semibold tabular-nums text-zinc-900">{timeFmt.format(new Date(g.at))}</p>
         {late ? <p className="text-[10px] font-semibold text-amber-700">gecikti</p> : null}
+        {tab === "draft" ? <p className="text-[10px] font-semibold text-zinc-500">taslak</p> : null}
       </div>
 
       <button
@@ -932,23 +1003,86 @@ function PostRow({
         ) : null}
       </div>
 
-      {removable ? (
-        <button
-          type="button"
-          onClick={() => onRemove(g)}
-          disabled={busy !== null}
-          title="Paylaşımı platformdan sil"
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-full px-2.5 text-xs font-medium text-zinc-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-        >
-          {busy === `del:${g.postId}` ? (
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+      <div className="flex shrink-0 items-start gap-0.5 self-start">
+        <RowAction icon={PencilLine} label="Aç" title="Paylaşım penceresinde aç" onClick={() => onOpen(g.postId)} />
+        {canEdit && planned && tab !== "published" ? (
+          g.draft ? (
+            <RowAction
+              icon={ArchiveRestore}
+              label="Geri al"
+              title="Taslaktan çıkar — yeniden sıraya girer"
+              busy={busy === `draft:${g.postId}`}
+              disabled={busy !== null}
+              onClick={() => onDraft(g, false)}
+            />
           ) : (
-            <Trash2 className="size-3.5" aria-hidden />
-          )}
-          <span className="hidden sm:inline">Sil</span>
-        </button>
-      ) : null}
+            <RowAction
+              icon={Archive}
+              label="Taslağa al"
+              title="Paylaşımı beklet — otomatik paylaşılmaz, Taslak sekmesinde durur"
+              busy={busy === `draft:${g.postId}`}
+              disabled={busy !== null || inFlight}
+              onClick={() => onDraft(g, true)}
+            />
+          )
+        ) : null}
+        {removable ? (
+          <RowAction
+            icon={Trash2}
+            label="Sil"
+            title="Paylaşımı platformdan sil"
+            tone="danger"
+            busy={busy === `del:${g.postId}`}
+            disabled={busy !== null}
+            onClick={() => onRemove(g)}
+          />
+        ) : canEdit && planned ? (
+          <RowAction
+            icon={Trash2}
+            label="Sil"
+            title="Paylaşım planını sil — içerik takvimde kalır"
+            tone="danger"
+            busy={busy === `del:${g.postId}`}
+            disabled={busy !== null || inFlight}
+            onClick={() => onRemovePlan(g)}
+          />
+        ) : null}
+      </div>
     </li>
+  );
+}
+
+function RowAction({
+  icon: Icon,
+  label,
+  title,
+  onClick,
+  busy = false,
+  disabled = false,
+  tone = "default",
+}: {
+  icon: typeof Trash2;
+  label: string;
+  title: string;
+  onClick: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={label}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-zinc-500 transition disabled:opacity-50 ${
+        tone === "danger" ? "hover:bg-rose-50 hover:text-rose-700" : "hover:bg-zinc-100 hover:text-zinc-900"
+      }`}
+    >
+      {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Icon className="size-3.5" aria-hidden />}
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   );
 }
 
@@ -998,7 +1132,9 @@ function EmptyList({ tab, filtered, onClear }: { tab: Tab; filtered: boolean; on
       ? "Sırada paylaşım yok. “Yeni paylaşım” ile planlayın ya da takvimdeki içerikleri bağlayın."
       : tab === "published"
         ? "Son 30 günde paylaşım yok."
-        : "Hatalı paylaşım yok.";
+        : tab === "draft"
+          ? "Taslakta paylaşım yok. Bir paylaşımı bekletmek için kartındaki “Taslağa al”ı kullanın."
+          : "Hatalı paylaşım yok.";
   return (
     <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center">
       <p className="mx-auto max-w-md text-sm text-zinc-500">{text}</p>

@@ -208,16 +208,19 @@ export async function loadSocialCounts(): Promise<SocialCounts> {
     prisma.contentPostTarget.count({
       where: {
         status: { in: ["pending", "publishing"] },
-        post: { autoPublish: true, status: { in: AUTO_PUBLISH_STATUSES } },
+        post: { autoPublish: true, socialDraftAt: null, status: { in: AUTO_PUBLISH_STATUSES } },
       },
     }),
     prisma.contentPostTarget.count({
-      where: { status: { in: ["pending", "publishing"] }, post: { scheduledAt: { gte: start, lt: end } } },
+      where: {
+        status: { in: ["pending", "publishing"] },
+        post: { socialDraftAt: null, scheduledAt: { gte: start, lt: end } },
+      },
     }),
     prisma.contentPostTarget.count({
       where: { status: "published", publishedAt: { gte: new Date(Date.now() - 7 * 86_400_000) } },
     }),
-    prisma.contentPostTarget.count({ where: { status: "failed" } }),
+    prisma.contentPostTarget.count({ where: { status: "failed", post: { socialDraftAt: null } } }),
   ]);
   return { queued, dueToday, published7d, failed };
 }
@@ -238,6 +241,8 @@ export type TargetRow = {
   autoPublish: boolean;
   /** İçerik onaylandı mı — otomatik paylaşım yalnızca onaylı içerikte çalışır. */
   approved: boolean;
+  /** "Taslağa alındı" anı — doluysa paylaşım arşivde, zamanlayıcı dokunmaz. */
+  draftAt: string | null;
   scheduledAt: string;
   publishedAt: string | null;
   nextAttemptAt: string | null;
@@ -267,6 +272,7 @@ export async function listSocialTargets(): Promise<TargetRow[]> {
           caption: true,
           scheduledAt: true,
           autoPublish: true,
+          socialDraftAt: true,
           status: true,
           tenant: { select: { id: true, name: true, slug: true } },
           media: {
@@ -294,6 +300,7 @@ export async function listSocialTargets(): Promise<TargetRow[]> {
       status: t.status,
       autoPublish: t.post.autoPublish,
       approved: AUTO_PUBLISH_STATUSES.includes(t.post.status),
+      draftAt: t.post.socialDraftAt?.toISOString() ?? null,
       scheduledAt: t.post.scheduledAt.toISOString(),
       publishedAt: t.publishedAt?.toISOString() ?? null,
       nextAttemptAt: t.nextAttemptAt?.toISOString() ?? null,

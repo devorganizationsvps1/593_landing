@@ -76,6 +76,8 @@ export type SerializedPost = {
   scheduledAt: string;
   status: ContentPostStatus;
   autoPublish: boolean;
+  /** Paylaşımlar'da taslağa alındıysa (zamanlayıcı atlar). */
+  socialDraft: boolean;
   /** Otomatik paylaşım hedeflerinin durumu (takvim kartı için). */
   publish: { platform: string; status: "pending" | "publishing" | "published" | "failed"; permalink: string | null }[];
   brief: string;
@@ -106,6 +108,7 @@ export function serializePost(p: PostWithRelations): SerializedPost {
     scheduledAt: p.scheduledAt.toISOString(),
     status: p.status,
     autoPublish: p.autoPublish,
+    socialDraft: p.socialDraftAt !== null,
     publish: p.targets.map((t) => ({ platform: t.platform, status: t.status, permalink: t.permalink })),
     brief: p.brief,
     caption: p.caption,
