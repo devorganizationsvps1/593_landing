@@ -31,6 +31,10 @@ function s3(): S3Client {
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY?.trim();
   client ??= new S3Client({
     region: process.env.S3_REGION?.trim() || "eu-north-1",
+    // SDK varsayılanı imzalı PUT URL'ine boş gövdenin CRC32'sini gömer →
+    // tarayıcıdan yüklenen dosya S3'te "checksum uyuşmadı" ile reddedilir.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
     // Anahtar yoksa SDK’nın varsayılan zinciri (IAM rolü vb.) kullanılır.
     ...(accessKeyId && secretAccessKey
       ? { credentials: { accessKeyId, secretAccessKey } }
