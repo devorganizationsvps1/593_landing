@@ -1004,7 +1004,7 @@ function PostRow({
       </div>
 
       <div className="flex shrink-0 items-start gap-0.5 self-start">
-        <RowAction icon={PencilLine} label="Aç" title="Paylaşım penceresinde aç" onClick={() => onOpen(g.postId)} />
+        <RowAction icon={PencilLine} label="Düzenle" title="Paylaşımı düzenle" onClick={() => onOpen(g.postId)} />
         {canEdit && planned && tab !== "published" ? (
           g.draft ? (
             <RowAction
