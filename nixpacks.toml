@@ -19,4 +19,7 @@ cmds = ["NODE_OPTIONS=--max-old-space-size=2048 npm run build"]
 
 [start]
 # migrate on boot so Dokploy redeploy applies schema without docker exec
-cmd = "npm run start"
+# Çalışma anında da varsayılan heap (~190 MB) yetmiyor: zamanlayıcılar + sharp
+# ile sınır aşılınca süreç çöküp container yeniden başlıyordu ("panel düşüyor").
+# Container belleğinin altında tutulmalı; aksi halde çekirdek OOM ile öldürür.
+cmd = "NODE_OPTIONS=--max-old-space-size=1024 npm run start"

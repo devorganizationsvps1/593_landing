@@ -132,6 +132,39 @@ select:not([multiple], [size], .appearance-none) {
   }
 }
 
+/*
+ * Tailwind v4 preflight dropped `cursor: pointer` from buttons. Restore it for
+ * every interactive control; disabled ones get `not-allowed`. Kept in the base
+ * layer so a `cursor-*` utility on an element still wins.
+ */
+@layer base {
+  button,
+  [role="button"],
+  [type="button"],
+  [type="submit"],
+  [type="reset"],
+  [type="checkbox"],
+  [type="radio"],
+  [type="file"]::file-selector-button,
+  input[type="color"],
+  input[type="range"],
+  select,
+  summary,
+  label[for],
+  label:has(> input[type="checkbox"], > input[type="radio"], > input[type="file"]) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  select:disabled,
+  fieldset:disabled button,
+  label:has(> input:disabled) {
+    cursor: not-allowed;
+  }
+}
+
 @media (pointer: fine) {
   html.has-cursor-dot,
   html.has-cursor-dot * {
