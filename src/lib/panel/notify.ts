@@ -45,6 +45,7 @@ export const NOTIFY_ALERT_TEAM: Record<string, string | null> = {
   budget_over: null,
   cpl_over: null,
   publish_failed: "sosyal-medya",
+  publish_unapproved: "sosyal-medya",
 };
 
 export const ALERT_TITLE: Record<string, string> = {
@@ -68,6 +69,7 @@ export const ALERT_TITLE: Record<string, string> = {
   setup_missing: "Kurulum eksik",
   site_tag_verify: "Site etiket testi başarısız",
   publish_failed: "Sosyal medya paylaşımı başarısız",
+  publish_unapproved: "Onaylanmadığı için paylaşılmadı",
 };
 
 /** Ekip adı — mesaj başlığında "[Meta ekibi]" gibi görünür. */

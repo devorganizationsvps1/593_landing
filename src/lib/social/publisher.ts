@@ -7,11 +7,12 @@
  */
 import type { ContentPostTarget } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { upsertOpenAlert } from "@/lib/panel/alerts-engine";
+import { resolveOpenAlertsOfType, upsertOpenAlert } from "@/lib/panel/alerts-engine";
 import { AUTO_PUBLISH_STATUSES } from "@/lib/panel/content-posts";
 import {
   PUBLISHER_READY,
   SOCIAL_PLATFORM_LABEL,
+  UNAPPROVED_NOTE,
   validateTarget,
   type PublishFormat,
   type SocialPlatformKey,
@@ -159,6 +160,69 @@ async function runPool(ids: string[]): Promise<void> {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
 }
 
+const UNAPPROVED_ALERT = "publish_unapproved";
+
+/**
+ * Saati geçmiş ama onaylanmamış içerikler sessizce kaçmasın: hedef bir kez
+ * işaretlenir (beklemede kalır) ve markanın ekibine uyarı gider. Onaylanan /
+ * ertelenen / silinen içerikler kalmayınca uyarı kendiliğinden kapanır.
+ */
+async function flagUnapproved(now: Date): Promise<void> {
+  const rows = await prisma.contentPostTarget.findMany({
+    where: {
+      status: "pending",
+      lastError: null,
+      post: {
+        autoPublish: true,
+        scheduledAt: { lte: now },
+        status: { notIn: [...AUTO_PUBLISH_STATUSES, "published"] },
+      },
+    },
+    select: {
+      id: true,
+      post: { select: { id: true, title: true, caption: true, tenantId: true } },
+    },
+    take: 200,
+  });
+  if (rows.length) {
+    await prisma.contentPostTarget.updateMany({
+      where: { id: { in: rows.map((r) => r.id) }, lastError: null },
+      data: { lastError: UNAPPROVED_NOTE },
+    });
+    const byTenant = new Map<string, Map<string, string>>();
+    for (const r of rows) {
+      const posts = byTenant.get(r.post.tenantId) ?? new Map<string, string>();
+      posts.set(r.post.id, r.post.title || r.post.caption.replace(/\s+/g, " ").slice(0, 60) || "içerik");
+      byTenant.set(r.post.tenantId, posts);
+    }
+    for (const [tenantId, posts] of byTenant) {
+      const titles = [...posts.values()];
+      await upsertOpenAlert({
+        tenantId,
+        type: UNAPPROVED_ALERT,
+        severity: "warn",
+        message: `${titles.length} içerik onaylanmadığı için saatinde paylaşılmadı: ${titles.join(", ")}`.slice(0, 500),
+        details: { count: titles.length, posts: titles },
+      });
+    }
+  }
+
+  const open = await prisma.alert.findMany({
+    where: { type: UNAPPROVED_ALERT, resolved: false },
+    select: { tenantId: true },
+  });
+  for (const { tenantId } of open) {
+    const still = await prisma.contentPostTarget.count({
+      where: {
+        status: "pending",
+        lastError: UNAPPROVED_NOTE,
+        post: { tenantId, status: { notIn: AUTO_PUBLISH_STATUSES } },
+      },
+    });
+    if (still === 0) await resolveOpenAlertsOfType(tenantId, UNAPPROVED_ALERT, "İçerikler onaylandı ya da kaldırıldı");
+  }
+}
+
 let running = false;
 
 /** Zamanı gelen tüm hedefler. Aynı süreçte üst üste binmez. */
@@ -167,6 +231,12 @@ export async function runDuePublishes(): Promise<{ claimed: number }> {
   running = true;
   try {
     const now = new Date();
+    try {
+      await flagUnapproved(now);
+    } catch (err) {
+      // Uyarı tarafındaki bir hata paylaşımı durdurmasın.
+      console.error("[social-publish] onaysız kontrolü", err);
+    }
     const due = await prisma.contentPostTarget.findMany({
       where: {
         OR: [

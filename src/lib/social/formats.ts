@@ -168,6 +168,12 @@ export function defaultFormat(platform: SocialPlatformKey, media: MediaShape[]):
   }
 }
 
+/**
+ * Saati geçmiş ama onaylanmamış içeriğin hedefine yazılan not. Hedef beklemede
+ * kalır; içerik "Onaylandı" yapılınca zamanlayıcı hemen paylaşır.
+ */
+export const UNAPPROVED_NOTE = "Onaylanmadığı için saatinde paylaşılmadı — onaylanınca hemen paylaşılır.";
+
 export const PUBLISH_STATUS_LABEL: Record<string, string> = {
   pending: "Sırada",
   publishing: "Paylaşılıyor",

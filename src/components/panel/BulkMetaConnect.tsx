@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -19,7 +19,8 @@ type RowState = "idle" | "busy" | "done" | "error";
 
 /**
  * Meta'da system user'a atanmış sayfaları, henüz bağlı olmayan markalara ad
- * benzerliğiyle önerir; onaylananları markanın bağlama uç noktasıyla tek tek bağlar.
+ * benzerliğiyle önerir. Her satır kendi "Bağla" düğmesiyle tek başına ya da
+ * işaretlenip toplu bağlanır; hiçbiri önceden işaretli gelmez.
  */
 export default function BulkMetaConnect({
   rows,
@@ -35,6 +36,12 @@ export default function BulkMetaConnect({
   /** Bağlama sonrası tablo yenilensin (ebeveynin yenileme göstergesiyle). */
   onChanged: () => void;
 }) {
+  // Pencere açıkken bağlanan marka listeden düşmesin, öneriler sıfırlanmasın:
+  // liste açılıştaki hâliyle sabitlenir.
+  const [list] = useState(rows);
+  const [taken0] = useState(takenPageIds);
+  const single = list.length === 1;
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pages, setPages] = useState<MetaPageOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
@@ -56,13 +63,13 @@ export default function BulkMetaConnect({
         };
         if (!res.ok) throw new Error(j.error || "Meta sayfaları alınamadı");
         if (!alive) return;
-        const list = (j.pages ?? []).filter((p) => p.canPost);
-        const taken = new Set(takenPageIds);
+        const all = (j.pages ?? []).filter((p) => p.canPost);
+        const taken = new Set(taken0);
         const s = suggestPages(
-          rows.map((r) => ({ slug: r.tenantSlug, name: r.tenantName })),
-          list.filter((p) => !taken.has(p.pageId)),
+          list.map((r) => ({ slug: r.tenantSlug, name: r.tenantName })),
+          all.filter((p) => !taken.has(p.pageId)),
         );
-        setPages(list);
+        setPages(all);
         setChoice(
           Object.fromEntries([...s].map(([slug, m]) => [slug, m.pageId])),
         );
@@ -77,18 +84,21 @@ export default function BulkMetaConnect({
     return () => {
       alive = false;
     };
-  }, [rows, takenPageIds]);
+  }, [list, taken0]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) onClose();
+      if (e.key === "Escape" && !anyBusyRef.current) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, running]);
+  }, [onClose]);
 
   /** Gizli markalar yalnızca bir sayfayla eşleştiyse listelenir (ör. ajansın kendi markası). */
-  const shown = useMemo(() => rows.filter((r) => r.visible || suggested.has(r.tenantSlug)), [rows, suggested]);
+  const shown = useMemo(
+    () => list.filter((r) => single || r.visible || suggested.has(r.tenantSlug)),
+    [list, single, suggested],
+  );
 
   const pageById = useMemo(
     () => new Map((pages ?? []).map((p) => [p.pageId, p])),
@@ -103,17 +113,32 @@ export default function BulkMetaConnect({
     return new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
   }, [choice]);
 
-  const selected = rows.filter(
-    (r) => choice[r.tenantSlug] && state[r.tenantSlug]?.s !== "done",
-  );
+  const ready = (r: AccountMatrixRow) =>
+    Boolean(choice[r.tenantSlug]) && state[r.tenantSlug]?.s !== "done";
+  const selectable = shown.filter(ready);
+  const selected = selectable.filter((r) => picked.has(r.tenantSlug));
+  const allPicked = selectable.length > 0 && selected.length === selectable.length;
   const doneCount = Object.values(state).filter((v) => v.s === "done").length;
   const errorCount = Object.values(state).filter((v) => v.s === "error").length;
+  const anyBusy = running || Object.values(state).some((v) => v.s === "busy");
+  const anyBusyRef = useRef(anyBusy);
+  useEffect(() => {
+    anyBusyRef.current = anyBusy;
+  }, [anyBusy]);
 
-  async function run() {
-    setRunning(true);
-    for (const r of selected) {
-      const pageId = choice[r.tenantSlug]!;
-      setState((s) => ({ ...s, [r.tenantSlug]: { s: "busy" } }));
+  function togglePick(slug: string) {
+    setPicked((s) => {
+      const n = new Set(s);
+      if (n.has(slug)) n.delete(slug);
+      else n.add(slug);
+      return n;
+    });
+  }
+
+  async function connect(r: AccountMatrixRow): Promise<void> {
+    const pageId = choice[r.tenantSlug];
+    if (!pageId) return;
+    setState((s) => ({ ...s, [r.tenantSlug]: { s: "busy" } }));
       try {
         const res = await fetch(
           `/api/panel/tenants/${r.tenantSlug}/social-accounts`,
@@ -126,6 +151,11 @@ export default function BulkMetaConnect({
         const j = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(j.error || "Bağlanamadı");
         setState((s) => ({ ...s, [r.tenantSlug]: { s: "done" } }));
+        setPicked((s) => {
+          const n = new Set(s);
+          n.delete(r.tenantSlug);
+          return n;
+        });
       } catch (err) {
         setState((s) => ({
           ...s,
@@ -135,7 +165,19 @@ export default function BulkMetaConnect({
           },
         }));
       }
-    }
+  }
+
+  /** Tek satır: yalnızca bu markayı hemen bağlar. */
+  async function connectOne(r: AccountMatrixRow) {
+    await connect(r);
+    setFinished(true);
+    onChanged();
+  }
+
+  /** İşaretlilerin hepsi. */
+  async function run() {
+    setRunning(true);
+    for (const r of selected) await connect(r);
     setRunning(false);
     setFinished(true);
     onChanged();
@@ -145,7 +187,7 @@ export default function BulkMetaConnect({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !running) onClose();
+        if (e.target === e.currentTarget && !anyBusy) onClose();
       }}
     >
       <div
@@ -157,17 +199,18 @@ export default function BulkMetaConnect({
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4">
           <div>
             <h3 id="bulk-meta-title" className="text-base font-semibold">
-              Meta hesaplarını toplu bağla
+              {single ? `${list[0]!.tenantName} — Meta hesabı bağla` : "Meta hesaplarını bağla"}
             </h3>
             <p className="mt-0.5 text-sm text-zinc-500">
-              Sayfalar marka adına göre önerildi. Kontrol edin, yanlışı
-              değiştirin ya da “Bağlama” seçin.
+              {single
+                ? "Sayfayı seçip Bağla'ya basın. Instagram, sayfaya bağlıysa birlikte gelir."
+                : "Sayfalar marka adına göre önerildi. Satırdaki “Bağla” ile tek tek bağlayın ya da işaretleyip toplu bağlayın."}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            disabled={running}
+            disabled={anyBusy}
             aria-label="Kapat"
             className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40"
           >
@@ -191,18 +234,44 @@ export default function BulkMetaConnect({
               Tüm markaların Meta hesabı bağlı.
             </p>
           ) : (
+            <>
+            {!single ? (
+              <label className="flex cursor-pointer items-center gap-3 border-b border-zinc-100 bg-zinc-50/70 px-5 py-2.5 text-xs font-medium text-zinc-600">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-[#141111]"
+                  checked={allPicked}
+                  disabled={anyBusy || selectable.length === 0}
+                  onChange={() =>
+                    setPicked(allPicked ? new Set() : new Set(selectable.map((r) => r.tenantSlug)))
+                  }
+                />
+                Sayfası seçili olanların tümünü işaretle
+                <span className="font-normal text-zinc-400">({selectable.length})</span>
+              </label>
+            ) : null}
             <ul className="divide-y divide-zinc-100">
               {shown.map((r) => {
                 const id = choice[r.tenantSlug] ?? "";
                 const page = id ? pageById.get(id) : undefined;
                 const st = state[r.tenantSlug];
-                const locked = running || st?.s === "done";
+                const locked = anyBusy || st?.s === "done";
                 return (
                   <li
                     key={r.tenantId}
                     className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:gap-4"
                   >
-                    <div className="min-w-0 sm:w-56 sm:shrink-0">
+                    {!single ? (
+                      <input
+                        type="checkbox"
+                        className="hidden size-4 shrink-0 accent-[#141111] sm:block"
+                        aria-label={`${r.tenantName} işaretle`}
+                        checked={picked.has(r.tenantSlug)}
+                        disabled={locked || !id}
+                        onChange={() => togglePick(r.tenantSlug)}
+                      />
+                    ) : null}
+                    <div className="min-w-0 sm:w-52 sm:shrink-0">
                       <p className="truncate text-sm font-medium">
                         {r.tenantName}
                       </p>
@@ -279,7 +348,7 @@ export default function BulkMetaConnect({
                       ) : null}
                     </div>
 
-                    <div className="flex h-6 shrink-0 items-center sm:w-24 sm:justify-end">
+                    <div className="flex h-8 shrink-0 items-center gap-2 sm:w-28 sm:justify-end">
                       {st?.s === "busy" ? (
                         <Loader2
                           className="size-4 animate-spin text-zinc-400"
@@ -298,11 +367,18 @@ export default function BulkMetaConnect({
                           <AlertTriangle className="size-3.5" aria-hidden />
                           Hata
                         </span>
-                      ) : id && suggested.has(r.tenantSlug) ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-zinc-400">
-                          <Sparkles className="size-3" aria-hidden />
-                          öneri
-                        </span>
+                      ) : null}
+                      {st?.s !== "busy" && st?.s !== "done" ? (
+                        <button
+                          type="button"
+                          onClick={() => void connectOne(r)}
+                          disabled={!id || anyBusy}
+                          title={id && suggested.has(r.tenantSlug) ? "Önerilen sayfayı bağla" : undefined}
+                          className="inline-flex h-8 items-center gap-1 rounded-full bg-[#141111] px-3 text-xs font-medium text-white transition hover:bg-[#e91825] disabled:bg-zinc-200 disabled:text-zinc-400"
+                        >
+                          {id && suggested.has(r.tenantSlug) ? <Sparkles className="size-3" aria-hidden /> : null}
+                          Bağla
+                        </button>
                       ) : null}
                     </div>
                     {st?.s === "error" && st.msg ? (
@@ -314,6 +390,7 @@ export default function BulkMetaConnect({
                 );
               })}
             </ul>
+            </>
           )}
         </div>
 
@@ -321,13 +398,17 @@ export default function BulkMetaConnect({
           <p className="text-xs text-zinc-500">
             {finished
               ? `${doneCount} marka bağlandı${errorCount ? `, ${errorCount} hata` : ""}.`
-              : `${selected.length} marka bağlanacak.`}
+              : single
+                ? ""
+                : selected.length
+                  ? `${selected.length} marka işaretli.`
+                  : "Satırdaki “Bağla” ile tek tek bağlayabilirsiniz."}
           </p>
           <div className="ml-auto flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              disabled={running}
+              disabled={anyBusy}
               className="inline-flex h-9 items-center rounded-full px-4 text-sm text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-40"
             >
               {finished ? "Kapat" : "İptal"}
@@ -336,13 +417,13 @@ export default function BulkMetaConnect({
               <button
                 type="button"
                 onClick={() => void run()}
-                disabled={running || !pages}
+                disabled={anyBusy || !pages}
                 className={`${toolPrimary} !h-9 !px-4 !text-sm`}
               >
                 {running ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                 ) : null}
-                {running ? "Bağlanıyor…" : `${selected.length} markayı bağla`}
+                {running ? "Bağlanıyor…" : `İşaretli ${selected.length} markayı bağla`}
               </button>
             ) : null}
           </div>

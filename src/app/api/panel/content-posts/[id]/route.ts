@@ -10,7 +10,7 @@ import {
   serializePost,
 } from "@/lib/panel/content-posts";
 import { requirePermissionApi, resolveStaffUserId } from "@/lib/panel/staff-auth";
-import { isSocialPlatform } from "@/lib/social/formats";
+import { isSocialPlatform, UNAPPROVED_NOTE } from "@/lib/social/formats";
 import { notifyTaskAssigned } from "@/lib/panel/task-notify";
 
 export const runtime = "nodejs";
@@ -113,6 +113,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
   if (Object.keys(data).length > 0) {
     const updated = await prisma.contentPost.update({ where: { id }, data });
+    // Tarih değişince "onaylanmadığı için paylaşılmadı" notu düşer (yeni saat beklenir).
+    if (updated.scheduledAt.getTime() !== existing.scheduledAt.getTime()) {
+      await prisma.contentPostTarget.updateMany({
+        where: { postId: id, status: "pending", lastError: UNAPPROVED_NOTE },
+        data: { lastError: null },
+      });
+    }
     // Platform listeden çıkarıldıysa henüz paylaşılmamış hedefi de düşer.
     if (platforms) {
       await prisma.contentPostTarget.deleteMany({

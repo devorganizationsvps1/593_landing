@@ -34,6 +34,7 @@ import {
   PUBLISH_STATUS_LABEL,
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABEL,
+  UNAPPROVED_NOTE,
   type SocialPlatformKey,
 } from "@/lib/social/formats";
 import type {
@@ -190,7 +191,8 @@ export default function SocialPublishingDashboard({
   const [platform, setPlatform] = useState<SocialPlatformKey | "">("");
   const [todayOnly, setTodayOnly] = useState(false);
   const [onlyMissing, setOnlyMissing] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
+  /** Meta bağlama penceresi: null = kapalı; tek satır = yalnızca o marka. */
+  const [connectRows, setConnectRows] = useState<AccountMatrixRow[] | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   /** Paylaşım penceresi: null = kapalı, { postId: null } = yeni. */
   const [compose, setCompose] = useState<{ postId: string | null } | null>(null);
@@ -302,6 +304,27 @@ export default function SocialPublishingDashboard({
   function goTab(next: Tab, opts: { today?: boolean } = {}) {
     setTab(next);
     setTodayOnly(Boolean(opts.today));
+  }
+
+  /** Saati geçmiş onaysız içeriği onaylar — zamanlayıcı bir dakika içinde paylaşır. */
+  async function approve(g: PostGroup) {
+    if (!window.confirm(`“${g.title}” onaylansın mı? Saati geçtiği için bir dakika içinde paylaşılacak.`)) return;
+    setBusy(`ok:${g.postId}`);
+    setError(null);
+    try {
+      const res = await fetch(`/api/panel/content-posts/${g.postId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "approved" }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "Onaylanamadı");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Onaylanamadı");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function retry(r: TargetRow) {
@@ -530,9 +553,9 @@ export default function SocialPublishingDashboard({
                 Meta eksik olanlar
               </button>
               {canEdit && unconnected.length > 0 ? (
-                <button type="button" onClick={() => setBulkOpen(true)} className={toolPrimary}>
+                <button type="button" onClick={() => setConnectRows(unconnected)} className={toolPrimary}>
                   <Link2 className="size-3.5" aria-hidden />
-                  Toplu bağla
+                  Hesap bağla
                 </button>
               ) : null}
             </>
@@ -603,12 +626,14 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {/* ── içerik ── */}
-      {bulkOpen ? <BulkMetaConnect
-          rows={unconnected}
+      {connectRows ? (
+        <BulkMetaConnect
+          rows={connectRows}
           takenPageIds={takenPageIds}
-          onClose={() => setBulkOpen(false)}
+          onClose={() => setConnectRows(null)}
           onChanged={refresh}
-        /> : null}
+        />
+      ) : null}
       {linkOpen ? <LinkCalendarPosts onClose={() => setLinkOpen(false)} onChanged={refresh} /> : null}
       {compose ? (
         <SocialComposer
@@ -621,7 +646,12 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {tab === "accounts" ? (
-        <AccountsTable rows={matrixRows} total={listed.length} canEdit={canEdit} />
+        <AccountsTable
+          rows={matrixRows}
+          total={listed.length}
+          canEdit={canEdit}
+          onConnect={(row) => setConnectRows([row])}
+        />
       ) : days.length === 0 ? (
         <EmptyList tab={tab} filtered={hasActiveFilters} onClear={clearFilters} />
       ) : (
@@ -650,6 +680,7 @@ export default function SocialPublishingDashboard({
                       busy={busy}
                       onRetry={retry}
                       onRemove={remove}
+                      onApprove={approve}
                       onOpen={(id) => setCompose({ postId: id })}
                     />
                   ))}
@@ -744,6 +775,7 @@ function PostRow({
   busy,
   onRetry,
   onRemove,
+  onApprove,
   onOpen,
 }: {
   group: PostGroup;
@@ -753,12 +785,16 @@ function PostRow({
   busy: string | null;
   onRetry: (r: TargetRow) => void;
   onRemove: (g: PostGroup) => void;
+  onApprove: (g: PostGroup) => void;
   /** Paylaşım penceresinde aç. */
   onOpen: (postId: string) => void;
 }) {
   const removable = canEdit && g.targets.some((t) => t.status === "published" && DELETABLE.has(t.platform));
   const late = tab === "upcoming" && g.at < now && g.targets.some((t) => t.status === "pending");
-  const problems = g.targets.filter((t) => t.lastError && t.status !== "published");
+  const unapproved = g.targets.filter((t) => t.status === "pending" && t.lastError === UNAPPROVED_NOTE);
+  const problems = g.targets.filter(
+    (t) => t.lastError && t.status !== "published" && t.lastError !== UNAPPROVED_NOTE,
+  );
   const retryAt = g.targets.find((t) => t.status === "pending" && t.nextAttemptAt)?.nextAttemptAt;
 
   return (
@@ -836,6 +872,30 @@ function PostRow({
             <span className="text-[11px] text-zinc-500">tekrar denenecek {shortFmt.format(new Date(retryAt))}</span>
           ) : null}
         </div>
+
+        {unapproved.length ? (
+          <div className="mt-2 flex flex-col gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 sm:flex-row sm:items-start sm:gap-2">
+            <p className="flex min-w-0 flex-1 items-start gap-2 leading-relaxed">
+              <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">{UNAPPROVED_NOTE}</span>
+            </p>
+            {canEdit ? (
+              <button
+                type="button"
+                className="inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-md border border-amber-300 bg-white px-2 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50"
+                disabled={busy !== null}
+                onClick={() => onApprove(g)}
+              >
+                {busy === `ok:${g.postId}` ? (
+                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="size-3" aria-hidden />
+                )}
+                Onayla
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {problems.length ? (
           <ul className="mt-2 space-y-1.5">
@@ -1002,10 +1062,13 @@ function AccountsTable({
   rows,
   total,
   canEdit,
+  onConnect,
 }: {
   rows: AccountMatrixRow[];
   total: number;
   canEdit: boolean;
+  /** Satırdaki "Bağla": bağlama penceresini yalnızca bu markayla açar. */
+  onConnect: (row: AccountMatrixRow) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -1144,9 +1207,9 @@ function AccountsTable({
 
                   <td className="px-4 py-2.5 text-right">
                     {canEdit && (!linked || hasError) ? (
-                      <Link href={brandHref} className={`${toolChip(false)} !h-7`}>
+                      <button type="button" onClick={() => onConnect(m)} className={`${toolChip(false)} !h-7`}>
                         {hasError ? "Yeniden bağla" : "Bağla"}
-                      </Link>
+                      </button>
                     ) : null}
                   </td>
                 </tr>
