@@ -2,12 +2,26 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { LOGO_ORB_URL } from "./logoOrbAsset";
 
 /**
  * Off+Brand-style liquid orb: mouse-driven surface overflow / warp.
  * Ref: https://www.itsoffbrand.com/
  */
-const LOGO_URL = "/icon512ai.png?v=9fix2";
+const LOGO_URL = LOGO_ORB_URL;
+
+/**
+ * Logo görseli oturum boyunca bir kez indirilip çözülür; her yeni orb (ör.
+ * sayfa geçişindeki yükleyici) hazır görseli kullanır, yeniden beklemez.
+ */
+let logoImage: Promise<HTMLImageElement> | null = null;
+function loadLogoImage() {
+  logoImage ??= new THREE.ImageLoader().loadAsync(LOGO_URL).catch((err) => {
+    logoImage = null;
+    throw err;
+  });
+  return logoImage;
+}
 
 const vertexShader = /* glsl */ `
 uniform float uTime;
@@ -226,9 +240,18 @@ function prefersReducedMotion() {
   );
 }
 
-export default function LogoOrb() {
+export default function LogoOrb({
+  onReady,
+}: {
+  /** Logo dokusuyla ilk kare çizildiğinde bir kez çağrılır. */
+  onReady?: () => void;
+} = {}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const onReadyRef = useRef(onReady);
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  });
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -316,16 +339,23 @@ export default function LogoOrb() {
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
 
-    const loader = new THREE.TextureLoader();
-    loader.load(LOGO_URL, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-      tex.generateMipmaps = true;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      uniforms.uLogo.value = tex;
-      material.needsUpdate = true;
-    });
+    let textured = false;
+    let readyFired = false;
+    loadLogoImage()
+      .then((img) => {
+        if (disposed) return;
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.needsUpdate = true;
+        uniforms.uLogo.value = tex;
+        material.needsUpdate = true;
+        textured = true;
+      })
+      .catch(() => {});
 
     const setSize = () => {
       const { clientWidth: w, clientHeight: h } = wrap;
@@ -468,6 +498,10 @@ export default function LogoOrb() {
       }
 
       renderer.render(scene, camera);
+      if (textured && !readyFired) {
+        readyFired = true;
+        onReadyRef.current?.();
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

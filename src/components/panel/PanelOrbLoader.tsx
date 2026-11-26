@@ -1,28 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
-
-/** Three.js yüklenene kadar aynı yerde duran statik logo — kutu boş kalmasın. */
-function OrbFallback() {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/logo-orb.png"
-      alt=""
-      className="size-full scale-[0.88] animate-pulse object-contain"
-    />
-  );
-}
+import { LOGO_ORB_URL } from "@/components/logoOrbAsset";
 
 /** Dalgalanan 3B logo — yalnızca istemcide (three.js). */
 const LogoOrb = dynamic(() => import("@/components/LogoOrb"), {
   ssr: false,
-  loading: OrbFallback,
+  loading: () => null,
 });
 
 /**
- * Sayfa yükleyicisi: içerik alanının ortasında beyaz yuvarlak bir zemin, içinde yalnızca
- * dalgalanan orb logo ve "yükleniyor" ibaresi.
+ * Sayfa yükleyicisi: içerik alanının ortasında, arka plansız; nefes alan
+ * dalgalı orb logo ve altında "yükleniyor" ibaresi.
  */
 export default function PanelOrbLoader({
   title = "Yükleniyor",
@@ -31,25 +21,52 @@ export default function PanelOrbLoader({
   title?: string;
   detail?: string;
 }) {
+  // Orb'un ilk karesi gelene kadar aynı yerde statik logo durur; sonra orb
+  // yumuşakça üstüne geçer — arada boşluk olmaz.
+  const [orbReady, setOrbReady] = useState(false);
+
   return (
     <div
-      className="flex min-h-[calc(100dvh-var(--panel-header-h)-6rem)] items-center justify-center"
+      className="flex min-h-[calc(100dvh-var(--panel-header-h)-6rem)] flex-col items-center justify-center text-center"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="flex aspect-square w-[19rem] flex-col items-center justify-center rounded-full border border-zinc-200 bg-white px-10 text-center shadow-sm sm:w-[22rem]">
-        <div className="size-36 sm:size-44" aria-hidden>
-          <LogoOrb />
+      <div className="orb-breathe relative size-32 sm:size-36" aria-hidden>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={LOGO_ORB_URL}
+          alt=""
+          fetchPriority="high"
+          className={`absolute inset-0 size-full scale-[0.88] object-contain transition-opacity duration-300 ${
+            orbReady ? "opacity-0" : "opacity-100"
+          }`}
+        />
+        <div
+          className={`absolute inset-0 transition-opacity duration-300 ${
+            orbReady ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <LogoOrb onReady={() => setOrbReady(true)} />
         </div>
-        <p className="mt-4 text-sm font-semibold text-zinc-900">
-          {title}
-          <span className="animate-pulse">…</span>
-        </p>
-        {detail ? (
-          <p className="mt-1.5 max-w-[15rem] text-xs leading-5 text-zinc-500">{detail}</p>
-        ) : null}
       </div>
+      <p className="mt-5 text-base font-semibold tracking-tight text-zinc-900">
+        {title}
+        <span className="ml-0.5 inline-flex gap-0.5 text-[#e63b22]" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="loader-dot"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            >
+              .
+            </span>
+          ))}
+        </span>
+      </p>
+      {detail ? (
+        <p className="mt-1 max-w-xs text-xs leading-5 text-zinc-500">{detail}</p>
+      ) : null}
     </div>
   );
 }

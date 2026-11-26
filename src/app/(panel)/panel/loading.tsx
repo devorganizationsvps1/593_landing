@@ -5,7 +5,7 @@ export default function PanelLoading() {
   return (
     <PanelOrbLoader
       title="Sayfa yükleniyor"
-      detail="Veriler hazırlanıyor — menüden ayrılmana gerek yok."
+      detail="Veriler hazırlanıyor, menüden ayrılmana gerek yok."
     />
   );
 }

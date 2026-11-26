@@ -273,6 +273,55 @@ html.panel-drawer-open body {
   }
 }
 
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+
+/* Panel yükleyicisi: orb yavaşça nefes alır. */
+.orb-breathe {
+  animation: orb-breathe 1.8s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-breathe {
+    animation: none;
+  }
+}
+
+/* Başlığın sonundaki üç nokta sırayla zıplar. */
+@keyframes loader-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.loader-dot {
+  display: inline-block;
+  animation: loader-dot 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader-dot {
+    animation: none;
+  }
+}
+
 @keyframes brand-jiggle {
   0% {
     transform: rotate(-1.35deg) translate3d(-0.45px, 0.35px, 0);
