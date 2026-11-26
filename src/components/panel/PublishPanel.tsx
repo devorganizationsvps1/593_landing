@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { ContentPostStatus } from "@prisma/client";
 import {
@@ -243,7 +244,7 @@ export default function PublishPanel({
   }
 
   async function removeMedia(m: SerializedMedia) {
-    if (!confirm(`“${m.originalName || "Dosya"}” silinsin mi?`)) return;
+    if (!await confirmDialog(`“${m.originalName || "Dosya"}” silinsin mi?`)) return;
     setBusy(`media:${m.id}`);
     setError(null);
     try {
@@ -324,7 +325,7 @@ export default function PublishPanel({
 
   async function publishNow(platforms?: SocialPlatformKey[], action: "now" | "retry" = "now") {
     if (!(await saveSettings())) return;
-    if (action === "now" && !confirm("Seçili platformlarda şimdi paylaşılsın mı?")) return;
+    if (action === "now" && !await confirmDialog("Seçili platformlarda şimdi paylaşılsın mı?")) return;
     setBusy(action);
     setError(null);
     try {

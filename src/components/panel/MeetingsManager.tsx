@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -815,7 +816,7 @@ function MeetingDrawer({
 
   async function destroy() {
     if (!meeting) return;
-    if (!window.confirm(`"${meeting.title}" silinsin mi? Aksiyon maddeleri de silinir.`))
+    if (!await confirmDialog(`"${meeting.title}" silinsin mi? Aksiyon maddeleri de silinir.`))
       return;
     setSaving(true);
     try {

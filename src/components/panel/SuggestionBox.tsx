@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import type { SuggestionKind, SuggestionStatus } from "@prisma/client";
 import {
   Bug,
@@ -98,7 +99,7 @@ export default function SuggestionBox({
   }
 
   async function remove(id: string) {
-    if (!confirm("Bu öneri silinsin mi?")) return;
+    if (!await confirmDialog("Bu öneri silinsin mi?")) return;
     setError(null);
     const res = await fetch(`/api/panel/suggestions/${id}`, { method: "DELETE" });
     if (!res.ok) {

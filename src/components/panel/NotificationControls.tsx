@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
@@ -31,7 +32,7 @@ export function WhatsAppToggle({
     if (
       next &&
       start === "now" &&
-      !window.confirm(
+      !await confirmDialog(
         `WhatsApp bildirimleri hemen açılacak. Bekleyen ${pendingCount} uyarı sonraki senkronda alıcılarına gidebilir. Devam edilsin mi?`,
       )
     ) {
@@ -247,7 +248,7 @@ export function SendAlertButton({ alertId }: { alertId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   async function send() {
-    if (!window.confirm("Bu uyarı marka sorumlusuna ve ilgili ekibe gönderilsin mi?")) return;
+    if (!await confirmDialog("Bu uyarı marka sorumlusuna ve ilgili ekibe gönderilsin mi?")) return;
     setBusy(true);
     setError(null);
     try {

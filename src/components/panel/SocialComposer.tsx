@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentPostStatus } from "@prisma/client";
@@ -314,7 +315,7 @@ export default function SocialComposer({
     if (!canSubmit) return;
     if (
       mode === "now" &&
-      !confirm(`${platforms.map((p) => SOCIAL_PLATFORM_LABEL[p]).join(" ve ")} hesabında şimdi paylaşılsın mı?`)
+      !await confirmDialog(`${platforms.map((p) => SOCIAL_PLATFORM_LABEL[p]).join(" ve ")} hesabında şimdi paylaşılsın mı?`)
     )
       return;
     let id = postId;

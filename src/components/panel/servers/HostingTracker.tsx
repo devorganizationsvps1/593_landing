@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { HostingRow } from "@/lib/servers/hosting";
@@ -149,7 +150,7 @@ export default function HostingTracker({ rows }: { rows: HostingRow[] }) {
   const visible = showHidden ? rows : tracked;
 
   async function paid(r: HostingRow) {
-    const ok = confirm(
+    const ok = await confirmDialog(
       `${r.name} için hosting ödemesi alındı olarak işaretlensin mi?\n\nDönem bir yıl ileri alınır: yeni bitiş ${fmtDate(
         new Date(Date.UTC(Number(r.periodEnd.slice(0, 4)) + 1, Number(r.periodEnd.slice(5, 7)) - 1, Number(r.periodEnd.slice(8, 10)))).toISOString(),
       )}.`,

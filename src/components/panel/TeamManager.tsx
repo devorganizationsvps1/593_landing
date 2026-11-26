@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { Camera, Check, Lock, Plus, Trash2, UserMinus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { EmptyState } from "@/components/panel/ds/EmptyState";
@@ -210,7 +211,7 @@ export default function TeamManager({
   }
 
   async function deleteUser(u: StaffUser) {
-    if (!confirm(`${label(u)} hesabı kalıcı olarak silinsin mi?`)) return;
+    if (!await confirmDialog(`${label(u)} hesabı kalıcı olarak silinsin mi?`)) return;
     setError(null);
     setOk(null);
     const res = await fetch(`/api/panel/users/${u.id}`, { method: "DELETE" });

@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Link2, Link2Off, Loader2 } from "lucide-react";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
@@ -74,7 +75,7 @@ export default function BrandSocialAccounts({
   }
 
   async function disconnect(platform: SocialPlatformKey) {
-    if (!confirm(`${SOCIAL_PLATFORM_LABEL[platform]} bağlantısı kaldırılsın mı? Bekleyen paylaşımlar hata verir.`)) return;
+    if (!await confirmDialog(`${SOCIAL_PLATFORM_LABEL[platform]} bağlantısı kaldırılsın mı? Bekleyen paylaşımlar hata verir.`)) return;
     setBusy(platform);
     setError(null);
     try {

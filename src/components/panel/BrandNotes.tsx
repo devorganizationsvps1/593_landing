@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -114,7 +115,7 @@ export default function BrandNotes({
   }
 
   async function remove(id: string) {
-    if (!confirm("Not silinsin mi? (Pano kartı silinmez)")) return;
+    if (!await confirmDialog("Not silinsin mi? (Pano kartı silinmez)")) return;
     const res = await fetch(`/api/panel/notes/${id}`, { method: "DELETE" });
     if (!res.ok) {
       setError("Silinemedi");

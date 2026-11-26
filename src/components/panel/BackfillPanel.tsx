@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useCallback, useEffect, useState } from "react";
 import { formatDateTime } from "@/lib/panel/format";
 
@@ -65,7 +66,7 @@ export function BackfillPanel({
   async function start(force: boolean) {
     if (
       force &&
-      !window.confirm(
+      !await confirmDialog(
         "Tüm aktif markalar 720 gün baştan çekilecek. Uzun sürebilir. Devam?",
       )
     ) {

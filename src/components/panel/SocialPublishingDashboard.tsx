@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -318,7 +319,7 @@ export default function SocialPublishingDashboard({
 
   /** Saati geçmiş onaysız içeriği onaylar — zamanlayıcı bir dakika içinde paylaşır. */
   async function approve(g: PostGroup) {
-    if (!window.confirm(`“${g.title}” onaylansın mı? Saati geçtiği için bir dakika içinde paylaşılacak.`)) return;
+    if (!await confirmDialog(`“${g.title}” onaylansın mı? Saati geçtiği için bir dakika içinde paylaşılacak.`)) return;
     setBusy(`ok:${g.postId}`);
     setError(null);
     try {
@@ -380,7 +381,7 @@ export default function SocialPublishingDashboard({
   /** Yayınlanmamış paylaşım planını siler; içerik takvimde kalır. */
   async function removePlan(g: PostGroup) {
     if (
-      !window.confirm(
+      !await confirmDialog(
         `“${g.title}” paylaşım planı silinsin mi?\n\nİçerik takvimde kalır; isterseniz “Takvimdeki içerikleri bağla” ile yeniden ekleyebilirsiniz.`,
       )
     )
@@ -403,7 +404,7 @@ export default function SocialPublishingDashboard({
     const live = g.targets.filter((t) => t.status === "published" && DELETABLE.has(t.platform));
     if (!live.length) return;
     const where = live.map((t) => `${SOCIAL_PLATFORM_LABEL[t.platform]} ${FORMAT_LABEL[t.format].toLocaleLowerCase("tr")}`).join(" ve ");
-    if (!window.confirm(`“${g.title}” paylaşımı ${where} üzerinden kalıcı olarak silinsin mi?\n\nİçerik takvimde kalır, yeniden paylaşılabilir.`)) return;
+    if (!await confirmDialog(`“${g.title}” paylaşımı ${where} üzerinden kalıcı olarak silinsin mi?\n\nİçerik takvimde kalır, yeniden paylaşılabilir.`)) return;
     setBusy(`del:${g.postId}`);
     setError(null);
     const failed: string[] = [];

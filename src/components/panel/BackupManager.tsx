@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   AlertTriangle,
   Clock,
@@ -78,7 +79,7 @@ export default function BackupManager({
   }
 
   async function restore(b: SerializedBackup) {
-    const ok = confirm(
+    const ok = await confirmDialog(
       `${formatDate(b.createdAt)} tarihli yedekteki pano kartları geri yüklensin mi?\n\n` +
         "Yalnızca silinmiş kolon ve kartlar geri gelir; mevcut kartlar değişmez.",
     );
@@ -110,7 +111,7 @@ export default function BackupManager({
   }
 
   async function remove(b: SerializedBackup) {
-    if (!confirm(`${formatDate(b.createdAt)} tarihli yedek silinsin mi?`)) return;
+    if (!await confirmDialog(`${formatDate(b.createdAt)} tarihli yedek silinsin mi?`)) return;
     setError(null);
     setNotice(null);
     setBusy(`delete:${b.id}`);

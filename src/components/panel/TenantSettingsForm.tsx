@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { TenantType } from "@prisma/client";
@@ -330,7 +331,7 @@ export default function TenantSettingsForm({
       setDeleteMessage("Silmek için slug’ı aynen yazın");
       return;
     }
-    const ok = window.confirm(
+    const ok = await confirmDialog(
       `"${form.name}" markasını ve tüm panel verisini kalıcı silmek istiyor musunuz? Bu geri alınamaz.`,
     );
     if (!ok) return;

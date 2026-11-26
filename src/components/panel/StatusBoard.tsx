@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   DndContext,
   DragOverlay,
@@ -402,7 +403,7 @@ export default function StatusBoard({
   );
 
   // Kaydedilmemiş değişiklik varsa kapatmadan önce sorar.
-  const closeEditor = useCallback(() => {
+  const closeEditor = useCallback(async () => {
     const current = editorSnapshot({
       title: draftTitle,
       description: draftDesc,
@@ -413,7 +414,7 @@ export default function StatusBoard({
       due: draftDue,
       labels: draftLabels,
     });
-    if (current !== editorBase.current && !confirm("Kaydedilmemiş değişiklikler silinsin mi?")) {
+    if (current !== editorBase.current && !await confirmDialog("Kaydedilmemiş değişiklikler silinsin mi?")) {
       return;
     }
     setEditing(null);
@@ -781,7 +782,7 @@ export default function StatusBoard({
   }
 
   async function deleteCard(cardId: string) {
-    if (!confirm("Bu görev silinsin mi?")) return;
+    if (!await confirmDialog("Bu görev silinsin mi?")) return;
     setError(null);
     const res = await fetch(`/api/panel/board/cards/${cardId}`, {
       method: "DELETE",
@@ -840,7 +841,7 @@ export default function StatusBoard({
   }
 
   async function removeCardImage(cardId: string, url: string) {
-    if (!confirm("Bu görsel kaldırılsın mı?")) return;
+    if (!await confirmDialog("Bu görsel kaldırılsın mı?")) return;
     setError(null);
     const res = await fetch(
       `/api/panel/board/cards/${cardId}/images?url=${encodeURIComponent(url)}`,

@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import { ArrowLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -521,7 +522,7 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
   async function cleanup(action: CleanupAction) {
     if (!sel) return;
     const spec = CLEANUP_ACTIONS[action];
-    const ok = confirm(`${sel.server.name}: ${spec.label} temizlensin mi?\n\n${spec.hint}${spec.danger ? "\n\nBu işlem geri alınamaz." : ""}`);
+    const ok = await confirmDialog(`${sel.server.name}: ${spec.label} temizlensin mi?\n\n${spec.hint}${spec.danger ? "\n\nBu işlem geri alınamaz." : ""}`);
     if (!ok) return;
     if (spec.danger && prompt('Onaylamak için "SİL" yaz:') !== "SİL") return;
     setBusy(`cleanup:${action}`);

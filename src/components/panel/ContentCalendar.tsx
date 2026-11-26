@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   memo,
   useCallback,
@@ -396,11 +397,11 @@ export default function ContentCalendar({
     draftBase.current = JSON.stringify(d);
     setDraft(d);
   }, []);
-  const closeDraft = useCallback(() => {
+  const closeDraft = useCallback(async () => {
     if (
       draft &&
       JSON.stringify(draft) !== draftBase.current &&
-      !confirm("Kaydedilmemiş değişiklikler silinsin mi?")
+      !await confirmDialog("Kaydedilmemiş değişiklikler silinsin mi?")
     )
       return;
     setDraft(null);
@@ -813,7 +814,7 @@ export default function ContentCalendar({
   }
 
   async function remove() {
-    if (!draft?.id || !confirm("İçerik silinsin mi?")) return;
+    if (!draft?.id || !await confirmDialog("İçerik silinsin mi?")) return;
     try {
       const res = await fetch(`/api/panel/content-posts/${draft.id}`, { method: "DELETE" });
       if (!res.ok) {

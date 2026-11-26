@@ -1,5 +1,6 @@
 "use client";
 
+import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   Check,
   ClipboardPaste,
@@ -103,7 +104,7 @@ export default function StaffNotesBoard({
   }
 
   async function removeNote(id: string) {
-    if (!confirm("Bu not ve görselleri silinsin mi?")) return;
+    if (!await confirmDialog("Bu not ve görselleri silinsin mi?")) return;
     setError(null);
     const res = await fetch(`/api/panel/staff-notes/${id}`, { method: "DELETE" });
     if (!res.ok) {
@@ -350,7 +351,7 @@ function NoteEditor({
   }
 
   async function removeImage(url: string) {
-    if (!confirm("Görsel kaldırılsın mı?")) return;
+    if (!await confirmDialog("Görsel kaldırılsın mı?")) return;
     setError(null);
     const res = await fetch(
       `/api/panel/staff-notes/${note.id}/images?url=${encodeURIComponent(url)}`,
