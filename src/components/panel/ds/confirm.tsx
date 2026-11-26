@@ -5,9 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { AlertTriangle, HelpCircle } from "lucide-react";
 
 /**
- * Tarayıcının `confirm()` penceresi yerine panelin kendi onay penceresi.
+ * Tarayıcının `confirm()` / `prompt()` pencereleri yerine panelin kendi penceresi.
  *
  *   if (!(await confirmDialog("İçerik silinsin mi?"))) return;
+ *   const phone = await promptDialog({ message: "Telefon", defaultValue: "+90" }); // null = vazgeçti
  *
  * Metindeki ilk boş satıra kadarki kısım başlık, kalanı açıklama olur. Silme /
  * kaldırma gibi geri dönüşü zor işlemler kendiliğinden kırmızı gösterilir.
@@ -20,7 +21,20 @@ export type ConfirmOptions = {
   tone?: "default" | "danger";
 };
 
-type Pending = ConfirmOptions & { id: number; resolve: (ok: boolean) => void };
+export type PromptOptions = ConfirmOptions & {
+  defaultValue?: string;
+  placeholder?: string;
+  inputType?: "text" | "tel" | "email";
+  /** Verilirse onay düğmesi yalnızca bu metin aynen yazılınca açılır (ör. "SİL"). */
+  mustEqual?: string;
+};
+
+type Pending = PromptOptions & {
+  id: number;
+  prompt: boolean;
+  /** Onayda girilen metin (onay penceresinde ""), vazgeçince null. */
+  resolve: (value: string | null) => void;
+};
 
 const DANGER = /\b(silin|sil\b|kaldırıl|temizlen|kalıcı|geri alınamaz)/i;
 
@@ -31,9 +45,19 @@ let seq = 0;
 
 export function confirmDialog(input: string | ConfirmOptions): Promise<boolean> {
   const opts = typeof input === "string" ? { message: input } : input;
-  if (typeof document === "undefined") return Promise.resolve(false);
+  return open(opts, false).then((v) => v !== null);
+}
+
+/** `prompt()` karşılığı: girilen metni, vazgeçilirse null döner. */
+export function promptDialog(input: string | PromptOptions): Promise<string | null> {
+  const opts = typeof input === "string" ? { message: input } : input;
+  return open(opts, true);
+}
+
+function open(opts: PromptOptions, prompt: boolean): Promise<string | null> {
+  if (typeof document === "undefined") return Promise.resolve(null);
   return new Promise((resolve) => {
-    const p = { ...opts, id: ++seq, resolve };
+    const p: Pending = { ...opts, id: ++seq, prompt, resolve };
     if (push) push(p);
     else queue.push(p);
     if (!root) {
@@ -63,8 +87,8 @@ function ConfirmHost() {
     <ConfirmModal
       key={current.id}
       item={current}
-      onDone={(ok) => {
-        current.resolve(ok);
+      onDone={(value) => {
+        current.resolve(value);
         setItems((list) => list.slice(1));
       }}
     />
@@ -77,19 +101,27 @@ function splitMessage(item: ConfirmOptions): { title: string; body: string | nul
   return { title: head.trim(), body: rest.join("\n\n").trim() || null };
 }
 
-function ConfirmModal({ item, onDone }: { item: Pending; onDone: (ok: boolean) => void }) {
+function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string | null) => void }) {
   const okRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState(item.defaultValue ?? "");
   const danger = item.tone ? item.tone === "danger" : DANGER.test(item.message);
   const { title, body } = splitMessage(item);
+  const blocked = item.mustEqual != null && value.trim() !== item.mustEqual;
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    okRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    } else {
+      okRef.current?.focus();
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        onDone(false);
+        onDone(null);
       }
     };
     // Yakalama evresinde: altta açık pencerenin Escape'i tetiklenmesin.
@@ -106,10 +138,14 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (ok: boolean) =
     <div
       className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onDone(false);
+        if (e.target === e.currentTarget) onDone(null);
       }}
     >
-      <div
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!blocked) onDone(item.prompt ? value : "");
+        }}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
@@ -136,28 +172,40 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (ok: boolean) =
             ) : null}
           </div>
         </div>
+        {item.prompt ? (
+          <input
+            ref={inputRef}
+            type={item.inputType ?? "text"}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={item.placeholder ?? item.mustEqual}
+            aria-label={title}
+            autoComplete="off"
+            className="mt-4 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+          />
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            onClick={() => onDone(false)}
+            onClick={() => onDone(null)}
             className="inline-flex h-9 items-center rounded-full px-4 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
           >
             {item.cancelLabel ?? "Vazgeç"}
           </button>
           <button
             ref={okRef}
-            type="button"
-            onClick={() => onDone(true)}
-            className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-semibold text-white transition focus-visible:outline-2 focus-visible:outline-offset-2 ${
+            type="submit"
+            disabled={blocked}
+            className={`inline-flex h-9 items-center rounded-full px-4 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 ${
               danger
                 ? "bg-rose-600 hover:bg-rose-700 focus-visible:outline-rose-600"
                 : "bg-[#141111] hover:bg-[#e91825] focus-visible:outline-[#e91825]"
             }`}
           >
-            {item.confirmLabel ?? (danger ? "Evet, devam et" : "Onayla")}
+            {item.confirmLabel ?? (danger ? "Evet, devam et" : item.prompt ? "Kaydet" : "Onayla")}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

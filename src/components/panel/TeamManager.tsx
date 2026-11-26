@@ -1,6 +1,6 @@
 "use client";
 
-import { confirmDialog } from "@/components/panel/ds/confirm";
+import { confirmDialog, promptDialog } from "@/components/panel/ds/confirm";
 import { Camera, Check, Lock, Plus, Trash2, UserMinus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { EmptyState } from "@/components/panel/ds/EmptyState";
@@ -174,7 +174,16 @@ export default function TeamManager({
 
   async function testWhatsApp() {
     const me = staff.find((u) => u.id === currentUserId);
-    const to = prompt("Test mesajı gönderilecek telefon (+90 5xx…)", me?.phone ?? "");
+    const to = (
+      await promptDialog({
+        message: "WhatsApp test mesajı",
+        title: "Test mesajı gönderilecek telefon",
+        defaultValue: me?.phone ?? "",
+        placeholder: "+90 5xx xxx xx xx",
+        inputType: "tel",
+        confirmLabel: "Gönder",
+      })
+    )?.trim();
     if (!to) return;
     setError(null);
     setOk(null);
@@ -192,7 +201,14 @@ export default function TeamManager({
   }
 
   async function updatePhone(u: StaffUser) {
-    const next = prompt("WhatsApp bildirimi için telefon (+90 5xx xxx xx xx). Boş = kaldır.", u.phone ?? "");
+    const next = await promptDialog({
+      title: "WhatsApp bildirim telefonu",
+      message: `${label(u)} için bildirimlerin gideceği numara. Boş bırakılırsa kaldırılır.`,
+      defaultValue: u.phone ?? "",
+      placeholder: "+90 5xx xxx xx xx",
+      inputType: "tel",
+      tone: "default",
+    });
     if (next === null) return;
     setError(null);
     setOk(null);

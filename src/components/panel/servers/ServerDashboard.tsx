@@ -1,6 +1,6 @@
 "use client";
 
-import { confirmDialog } from "@/components/panel/ds/confirm";
+import { confirmDialog, promptDialog } from "@/components/panel/ds/confirm";
 import { ArrowLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -524,7 +524,17 @@ export default function ServerDashboard({ data, hosting }: { data: ServerPageDat
     const spec = CLEANUP_ACTIONS[action];
     const ok = await confirmDialog(`${sel.server.name}: ${spec.label} temizlensin mi?\n\n${spec.hint}${spec.danger ? "\n\nBu işlem geri alınamaz." : ""}`);
     if (!ok) return;
-    if (spec.danger && prompt('Onaylamak için "SİL" yaz:') !== "SİL") return;
+    if (
+      spec.danger &&
+      (await promptDialog({
+        title: 'Onaylamak için "SİL" yaz',
+        message: `${sel.server.name}: ${spec.label}`,
+        mustEqual: "SİL",
+        tone: "danger",
+        confirmLabel: "Kalıcı olarak sil",
+      })) === null
+    )
+      return;
     setBusy(`cleanup:${action}`);
     setNotice(null);
     const r = await post({ op: "cleanup", key: sel.server.key, action });
