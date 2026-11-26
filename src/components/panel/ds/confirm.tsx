@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { AlertTriangle, HelpCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, HelpCircle, Info } from "lucide-react";
 
 /**
  * Tarayıcının `confirm()` / `prompt()` pencereleri yerine panelin kendi penceresi.
  *
  *   if (!(await confirmDialog("İçerik silinsin mi?"))) return;
  *   const phone = await promptDialog({ message: "Telefon", defaultValue: "+90" }); // null = vazgeçti
+ *   await alertDialog({ message: "Paylaşım silindi.", tone: "success" }); // tek "Tamam" düğmesi
  *
  * Metindeki ilk boş satıra kadarki kısım başlık, kalanı açıklama olur. Silme /
  * kaldırma gibi geri dönüşü zor işlemler kendiliğinden kırmızı gösterilir.
@@ -18,7 +19,7 @@ export type ConfirmOptions = {
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "success";
 };
 
 export type PromptOptions = ConfirmOptions & {
@@ -32,6 +33,8 @@ export type PromptOptions = ConfirmOptions & {
 type Pending = PromptOptions & {
   id: number;
   prompt: boolean;
+  /** Bilgilendirme: yalnızca "Tamam" düğmesi. */
+  alert?: boolean;
   /** Onayda girilen metin (onay penceresinde ""), vazgeçince null. */
   resolve: (value: string | null) => void;
 };
@@ -54,10 +57,16 @@ export function promptDialog(input: string | PromptOptions): Promise<string | nu
   return open(opts, true);
 }
 
-function open(opts: PromptOptions, prompt: boolean): Promise<string | null> {
+/** `alert()` karşılığı: bilgilendirme penceresi, kapatılınca çözülür. */
+export function alertDialog(input: string | ConfirmOptions): Promise<void> {
+  const opts = typeof input === "string" ? { message: input } : input;
+  return open(opts, false, true).then(() => undefined);
+}
+
+function open(opts: PromptOptions, prompt: boolean, alert = false): Promise<string | null> {
   if (typeof document === "undefined") return Promise.resolve(null);
   return new Promise((resolve) => {
-    const p: Pending = { ...opts, id: ++seq, prompt, resolve };
+    const p: Pending = { ...opts, id: ++seq, prompt, alert, resolve };
     if (push) push(p);
     else queue.push(p);
     if (!root) {
@@ -105,7 +114,8 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
   const okRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(item.defaultValue ?? "");
-  const danger = item.tone ? item.tone === "danger" : DANGER.test(item.message);
+  const danger = item.tone ? item.tone === "danger" : !item.alert && DANGER.test(item.message);
+  const success = item.tone === "success";
   const { title, body } = splitMessage(item);
   const blocked = item.mustEqual != null && value.trim() !== item.mustEqual;
 
@@ -132,7 +142,7 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
     };
   }, [onDone]);
 
-  const Icon = danger ? AlertTriangle : HelpCircle;
+  const Icon = danger ? AlertTriangle : success ? CheckCircle2 : item.alert ? Info : HelpCircle;
 
   return (
     <div
@@ -146,7 +156,7 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
           e.preventDefault();
           if (!blocked) onDone(item.prompt ? value : "");
         }}
-        role="alertdialog"
+        role={item.alert ? "dialog" : "alertdialog"}
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby={body ? "confirm-body" : undefined}
@@ -155,7 +165,11 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
         <div className="flex gap-3.5">
           <span
             className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
-              danger ? "bg-rose-50 text-rose-600" : "bg-zinc-100 text-zinc-700"
+              danger
+                ? "bg-rose-50 text-rose-600"
+                : success
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-zinc-100 text-zinc-700"
             }`}
             aria-hidden
           >
@@ -185,6 +199,7 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
           />
         ) : null}
         <div className="mt-5 flex justify-end gap-2">
+          {item.alert ? null : (
           <button
             type="button"
             onClick={() => onDone(null)}
@@ -192,6 +207,7 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
           >
             {item.cancelLabel ?? "Vazgeç"}
           </button>
+          )}
           <button
             ref={okRef}
             type="submit"
@@ -202,7 +218,8 @@ function ConfirmModal({ item, onDone }: { item: Pending; onDone: (value: string 
                 : "bg-[#141111] hover:bg-[#e91825] focus-visible:outline-[#e91825]"
             }`}
           >
-            {item.confirmLabel ?? (danger ? "Evet, devam et" : item.prompt ? "Kaydet" : "Onayla")}
+            {item.confirmLabel ??
+              (item.alert ? "Tamam" : danger ? "Evet, devam et" : item.prompt ? "Kaydet" : "Onayla")}
           </button>
         </div>
       </form>

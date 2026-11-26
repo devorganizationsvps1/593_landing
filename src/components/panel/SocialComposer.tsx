@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog } from "@/components/panel/ds/confirm";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -250,6 +252,8 @@ export default function SocialComposer({
   );
   const formatOf = (p: SocialPlatformKey): PublishFormat => drafts[p]?.format ?? defaultFormat(p, shapes);
   const captionOf = (p: SocialPlatformKey) => drafts[p]?.captionOverride.trim() || caption.trim();
+  /** Seçili tüm platformlarda hikâye → açıklama alanı gizlenir. */
+  const onlyStory = platforms.length > 0 && platforms.every((p) => formatOf(p) === "story");
 
   /** Kaydetmeyi engelleyen eksikler. */
   const blockers: string[] = [];
@@ -735,25 +739,7 @@ export default function SocialComposer({
                 {fileError ? <p className="mt-1.5 text-xs text-rose-700">{fileError}</p> : null}
               </div>
 
-              {/* açıklama */}
-              <label className="block text-xs text-zinc-600">
-                <span className="flex items-baseline justify-between">
-                  Açıklama
-                  {platforms.includes("instagram") ? (
-                    <span className={`tabular-nums ${caption.length > CAPTION_LIMIT.instagram ? "text-rose-600" : "text-zinc-400"}`}>
-                      {caption.length} / {CAPTION_LIMIT.instagram}
-                    </span>
-                  ) : null}
-                </span>
-                <textarea
-                  className="mt-1 min-h-32 w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm leading-relaxed text-[#141111] focus:border-[#141111] focus:outline-none"
-                  value={caption}
-                  onChange={(e) => setCaption(e.target.value)}
-                  placeholder="Paylaşım açıklaması, hashtag'ler, emojiler…"
-                />
-              </label>
-
-              {/* platform ayarları */}
+              {/* paylaşım türü — açıklamadan önce seçilir */}
               {platforms.length ? (
                 <div className="space-y-2">
                   {platforms.map((p) => (
@@ -781,6 +767,9 @@ export default function SocialComposer({
                           })}
                         </div>
                       </div>
+                      {formatOf(p) === "story" ? (
+                        <p className="mt-1.5 text-xs text-zinc-500">Hikâyede açıklama paylaşılmaz; yalnızca tek görsel veya video gider.</p>
+                      ) : onlyStory ? null : (
                       <details className="mt-1.5" open={Boolean(drafts[p]?.captionOverride)}>
                         <summary className="cursor-pointer text-xs text-zinc-500">Bu platforma özel açıklama</summary>
                         <textarea
@@ -790,10 +779,31 @@ export default function SocialComposer({
                           onChange={(e) => patchDraft(p, { captionOverride: e.target.value })}
                         />
                       </details>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : null}
+
+              {/* açıklama — yalnızca hikâye seçiliyse gizli */}
+              {onlyStory ? null : (
+              <label className="block text-xs text-zinc-600">
+                <span className="flex items-baseline justify-between">
+                  Açıklama
+                  {platforms.includes("instagram") ? (
+                    <span className={`tabular-nums ${caption.length > CAPTION_LIMIT.instagram ? "text-rose-600" : "text-zinc-400"}`}>
+                      {caption.length} / {CAPTION_LIMIT.instagram}
+                    </span>
+                  ) : null}
+                </span>
+                <textarea
+                  className="mt-1 min-h-32 w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 text-sm leading-relaxed text-[#141111] focus:border-[#141111] focus:outline-none"
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  placeholder="Paylaşım açıklaması, hashtag'ler, emojiler…"
+                />
+              </label>
+              )}
 
               {/* zamanlama */}
               <div className="space-y-3 rounded-2xl border border-zinc-200 p-3">
@@ -826,7 +836,7 @@ export default function SocialComposer({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="text-xs text-zinc-600">
                       Paylaşım tarihi ve saati
-                      <input type="datetime-local" className={`${fieldClass} mt-1 w-full`} value={when} onChange={(e) => setWhen(e.target.value)} />
+                      <DatePicker mode="datetime" className={`${fieldClass} mt-1 w-full`} value={when} onChange={setWhen} min={new Date().toISOString().slice(0, 10)} required />
                     </label>
                     <label className="text-xs text-zinc-600">
                       Onay

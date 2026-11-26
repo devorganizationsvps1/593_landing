@@ -21,7 +21,7 @@ const LogoOrb = dynamic(() => import("@/components/LogoOrb"), {
 });
 
 /**
- * Sayfa yükleyicisi: içerik alanının ortasında beyaz bir kutu, içinde yalnızca
+ * Sayfa yükleyicisi: içerik alanının ortasında beyaz yuvarlak bir zemin, içinde yalnızca
  * dalgalanan orb logo ve "yükleniyor" ibaresi.
  */
 export default function PanelOrbLoader({
@@ -38,16 +38,16 @@ export default function PanelOrbLoader({
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="flex w-full max-w-sm flex-col items-center rounded-2xl border border-zinc-200 bg-white px-8 py-10 text-center shadow-sm">
-        <div className="size-44 sm:size-52" aria-hidden>
+      <div className="flex aspect-square w-[19rem] flex-col items-center justify-center rounded-full border border-zinc-200 bg-white px-10 text-center shadow-sm sm:w-[22rem]">
+        <div className="size-36 sm:size-44" aria-hidden>
           <LogoOrb />
         </div>
-        <p className="mt-6 text-sm font-semibold text-zinc-900">
+        <p className="mt-4 text-sm font-semibold text-zinc-900">
           {title}
           <span className="animate-pulse">…</span>
         </p>
         {detail ? (
-          <p className="mt-1.5 text-xs leading-5 text-zinc-500">{detail}</p>
+          <p className="mt-1.5 max-w-[15rem] text-xs leading-5 text-zinc-500">{detail}</p>
         ) : null}
       </div>
     </div>

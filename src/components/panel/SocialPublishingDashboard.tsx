@@ -1,6 +1,6 @@
 "use client";
 
-import { confirmDialog } from "@/components/panel/ds/confirm";
+import { alertDialog, confirmDialog } from "@/components/panel/ds/confirm";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -393,6 +393,10 @@ export default function SocialPublishingDashboard({
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(j.error || "Silinemedi");
       refresh();
+      void alertDialog({
+        tone: "success",
+        message: `Paylaşım planı silindi.\n\n“${g.title}” artık Paylaşımlar'da görünmüyor; içerik takvimde duruyor.`,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Silinemedi");
     } finally {
@@ -420,6 +424,19 @@ export default function SocialPublishingDashboard({
     if (failed.length) setError(failed.join(" · "));
     setBusy(null);
     refresh();
+    const done = live.length - failed.length;
+    if (done > 0) {
+      void alertDialog(
+        failed.length
+          ? {
+              message: `Paylaşım kısmen silindi.\n\n${done} platformdan kaldırıldı, ${failed.length} platformda silinemedi:\n${failed.join("\n")}`,
+            }
+          : {
+              tone: "success",
+              message: `Paylaşım silindi.\n\n“${g.title}” ${where} üzerinden kaldırıldı. İçerik takvimde duruyor, yeniden paylaşılabilir.`,
+            },
+      );
+    }
   }
 
   const tabs: { key: Tab; label: string; count: number; alert?: boolean }[] = [

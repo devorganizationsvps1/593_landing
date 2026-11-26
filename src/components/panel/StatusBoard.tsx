@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   DndContext,
@@ -1467,10 +1469,9 @@ export default function StatusBoard({
                     </label>
                     <label className={modalLabel}>
                       Son tarih
-                      <input
-                        type="date"
+                      <DatePicker
                         value={draftDue}
-                        onChange={(e) => setDraftDue(e.target.value)}
+                        onChange={(v) => setDraftDue(v)}
                         className={modalField}
                       />
                     </label>

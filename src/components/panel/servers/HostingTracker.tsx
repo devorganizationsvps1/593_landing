@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog } from "@/components/panel/ds/confirm";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -76,11 +78,10 @@ function EditForm({ row, onDone }: { row: HostingRow; onDone: (saved: boolean) =
     <form onSubmit={save} className="grid gap-4 border-t border-panel-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
       <label className={LABEL}>
         Dönem bitiş tarihi
-        <input
-          type="date"
+        <DatePicker
           required
           value={form.paidUntil}
-          onChange={(e) => setForm((f) => ({ ...f, paidUntil: e.target.value }))}
+          onChange={(v) => setForm((f) => ({ ...f, paidUntil: v }))}
           className={`${FIELD} mt-1`}
         />
       </label>

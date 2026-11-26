@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog, promptDialog } from "@/components/panel/ds/confirm";
 import { ArrowLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 import Link from "next/link";
@@ -334,7 +336,7 @@ function MetaForm({ serverKey, meta, onClose, onSaved }: { serverKey: string; me
     <form onSubmit={save} className="grid gap-4 border-t border-panel-border px-5 py-4 sm:grid-cols-2 lg:grid-cols-5">
       <label className={LABEL}>
         Satın alma tarihi
-        <input type="date" value={form.purchasedAt} onChange={set("purchasedAt")} className={`${FIELD} mt-1`} />
+        <DatePicker value={form.purchasedAt} onChange={(v) => setForm((f) => ({ ...f, purchasedAt: v }))} className={`${FIELD} mt-1`} />
       </label>
       <label className={LABEL}>
         Sağlayıcı

@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { usePathname, useSearchParams } from "next/navigation";
 import { PeriodNavStatusLine, PeriodSpinner } from "@/components/panel/period-nav/PeriodNavUi";
 import { usePeriodNavigation } from "@/components/panel/period-nav/usePeriodNavigation";
@@ -80,20 +82,18 @@ export default function PeriodFilterBar({
       >
         <label className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
           Başlangıç
-          <input
+          <DatePicker
             name="start"
-            type="date"
             defaultValue={active === "custom" ? start : ""}
-            className="mt-0.5 block rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800"
+            className="mt-0.5 w-40 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800"
           />
         </label>
         <label className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
           Bitiş
-          <input
+          <DatePicker
             name="end"
-            type="date"
             defaultValue={active === "custom" ? end : ""}
-            className="mt-0.5 block rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800"
+            className="mt-0.5 w-40 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800"
           />
         </label>
         <button

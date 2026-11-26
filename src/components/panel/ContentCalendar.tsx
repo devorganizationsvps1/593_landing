@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   memo,
@@ -1417,12 +1419,12 @@ export default function ContentCalendar({
                 </label>
                 <label className="text-xs text-zinc-600">
                   Paylaşım tarihi ve saati
-                  <input
-                    type="datetime-local"
+                  <DatePicker
+                    mode="datetime"
                     className={`${fieldClass} mt-1 w-full`}
                     value={draft.scheduledAt}
                     disabled={!canEdit}
-                    onChange={(e) => setDraft({ ...draft, scheduledAt: e.target.value })}
+                    onChange={(v) => setDraft({ ...draft, scheduledAt: v })}
                   />
                 </label>
 

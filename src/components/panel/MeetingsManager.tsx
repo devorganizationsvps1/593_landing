@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { confirmDialog } from "@/components/panel/ds/confirm";
 import {
   ArrowUpRight,
@@ -1064,11 +1066,11 @@ function MeetingDrawer({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className={labelCls}>
                 Başlangıç
-                <input
-                  type="datetime-local"
+                <DatePicker
+                  mode="datetime"
                   value={toLocalInput(draft.startsAt)}
-                  onChange={(e) => {
-                    const iso = fromLocalInput(e.target.value);
+                  onChange={(v) => {
+                    const iso = fromLocalInput(v);
                     if (iso) set("startsAt", iso);
                   }}
                   disabled={readOnly}
@@ -1077,10 +1079,10 @@ function MeetingDrawer({
               </label>
               <label className={labelCls}>
                 Bitiş
-                <input
-                  type="datetime-local"
+                <DatePicker
+                  mode="datetime"
                   value={toLocalInput(draft.endsAt)}
-                  onChange={(e) => set("endsAt", fromLocalInput(e.target.value))}
+                  onChange={(v) => set("endsAt", fromLocalInput(v))}
                   disabled={readOnly}
                   className={`${inputCls} mt-1`}
                 />
@@ -1223,13 +1225,12 @@ function MeetingDrawer({
                         patchPending(it.key, { assigneeIds: ids })
                       }
                     />
-                    <input
-                      type="date"
+                    <DatePicker
                       value={toLocalDateInput(it.dueAt)}
-                      onChange={(e) =>
+                      onChange={(v) =>
                         patchPending(it.key, {
-                          dueAt: e.target.value
-                            ? new Date(`${e.target.value}T18:00:00`).toISOString()
+                          dueAt: v
+                            ? new Date(`${v}T18:00:00`).toISOString()
                             : null,
                         })
                       }
@@ -1284,14 +1285,13 @@ function MeetingDrawer({
                       disabled={readOnly || busyItem === it.id}
                       onChange={(ids) => patchItem(it, { assigneeIds: ids })}
                     />
-                    <input
-                      type="date"
+                    <DatePicker
                       value={toLocalDateInput(it.dueAt)}
                       disabled={readOnly || busyItem === it.id}
-                      onChange={(e) =>
+                      onChange={(v) =>
                         patchItem(it, {
-                          dueAt: e.target.value
-                            ? new Date(`${e.target.value}T18:00:00`).toISOString()
+                          dueAt: v
+                            ? new Date(`${v}T18:00:00`).toISOString()
                             : null,
                         })
                       }

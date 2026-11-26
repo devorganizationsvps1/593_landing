@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "./DatePicker";
+
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   PeriodNavStatusLine,
@@ -103,20 +105,18 @@ export function DateRangePicker({
         >
           <label className="text-[10px] font-semibold uppercase tracking-wide text-panel-fg-muted">
             Başlangıç
-            <input
+            <DatePicker
               name="start"
-              type="date"
               defaultValue={active === "custom" ? start : ""}
-              className="mt-1 block rounded-panel-btn border border-panel-border bg-panel-surface px-2.5 py-1.5 text-xs text-panel-fg"
+              className="mt-1 w-44 rounded-panel-btn border border-panel-border bg-panel-surface px-2.5 py-1.5 text-xs text-panel-fg"
             />
           </label>
           <label className="text-[10px] font-semibold uppercase tracking-wide text-panel-fg-muted">
             Bitiş
-            <input
+            <DatePicker
               name="end"
-              type="date"
               defaultValue={active === "custom" ? end : ""}
-              className="mt-1 block rounded-panel-btn border border-panel-border bg-panel-surface px-2.5 py-1.5 text-xs text-panel-fg"
+              className="mt-1 w-44 rounded-panel-btn border border-panel-border bg-panel-surface px-2.5 py-1.5 text-xs text-panel-fg"
             />
           </label>
           <button

@@ -1,5 +1,7 @@
 "use client";
 
+import DatePicker from "@/components/panel/ds/DatePicker";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Mail } from "lucide-react";
@@ -102,11 +104,11 @@ export default function BrandReportPanel({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs text-zinc-600">
           Başlangıç
-          <input type="date" className={`${fieldClass} mt-1 w-full`} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <DatePicker className={`${fieldClass} mt-1 w-full`} value={from} onChange={(v) => setFrom(v)} />
         </label>
         <label className="text-xs text-zinc-600">
           Bitiş
-          <input type="date" className={`${fieldClass} mt-1 w-full`} value={to} onChange={(e) => setTo(e.target.value)} />
+          <DatePicker className={`${fieldClass} mt-1 w-full`} value={to} onChange={(v) => setTo(v)} />
         </label>
         <label className="text-xs text-zinc-600 sm:col-span-2">
           Ajans yorumu

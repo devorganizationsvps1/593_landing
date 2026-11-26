@@ -102,10 +102,12 @@ export function validateTarget(target: TargetShape, media: MediaShape[], caption
   const label = SOCIAL_PLATFORM_LABEL[target.platform];
   const v = media.find((m) => m.kind === "video");
 
-  // Kural: medya ve açıklama olmadan hiçbir platformda paylaşım yapılmaz.
+  // Kural: medya ve açıklama olmadan paylaşım yapılmaz — hikâyenin açıklaması
+  // olmaz (platform almıyor), orada yalnızca medya gerekir.
+  const story = target.format === "story";
   if (total === 0) errs.push(`${label}: medya olmadan paylaşılamaz.`);
-  if (!caption.trim()) errs.push(`${label}: açıklama olmadan paylaşılamaz.`);
-  if (caption.length > CAPTION_LIMIT[target.platform]) {
+  if (!story && !caption.trim()) errs.push(`${label}: açıklama olmadan paylaşılamaz.`);
+  if (!story && caption.length > CAPTION_LIMIT[target.platform]) {
     errs.push(`${label}: metin en fazla ${CAPTION_LIMIT[target.platform]} karakter olabilir.`);
   }
 
@@ -152,7 +154,7 @@ export function validateTarget(target: TargetShape, media: MediaShape[], caption
   return errs;
 }
 
-/** Varsayılan format: medyaya göre en mantıklı seçim. */
+/** Varsayılan format. Instagram / Facebook'ta her zaman gönderi (tekil video gönderisi Instagram'da Reels olarak gider). */
 export function defaultFormat(platform: SocialPlatformKey, media: MediaShape[]): PublishFormat {
   const onlyVideo = media.length === 1 && media[0]!.kind === "video";
   const v = media[0];
@@ -160,7 +162,7 @@ export function defaultFormat(platform: SocialPlatformKey, media: MediaShape[]):
   switch (platform) {
     case "instagram":
     case "facebook":
-      return onlyVideo ? "reel" : "post";
+      return "post";
     case "tiktok":
       return media.some((m) => m.kind === "video") ? "video" : "photo";
     case "youtube":
