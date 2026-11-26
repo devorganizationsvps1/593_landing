@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { IntegrationNotConfiguredError } from "@/lib/integrations/tokens";
 import { PUBLISHER_READY, type PublishFormat, type SocialPlatformKey } from "@/lib/social/formats";
 import { createUploadTarget, previewUrl, publicBaseUrl } from "@/lib/social/media";
+import { AUTO_PUBLISH_STATUSES } from "@/lib/panel/content-posts";
 import { listMetaPages, missingMetaPublishScopes } from "@/lib/social/meta";
 import { s3Enabled } from "@/lib/storage/s3";
 
@@ -204,7 +205,12 @@ function istanbulDayBounds(now = new Date()): { start: Date; end: Date } {
 export async function loadSocialCounts(): Promise<SocialCounts> {
   const { start, end } = istanbulDayBounds();
   const [queued, dueToday, published7d, failed] = await Promise.all([
-    prisma.contentPostTarget.count({ where: { status: { in: ["pending", "publishing"] }, post: { autoPublish: true } } }),
+    prisma.contentPostTarget.count({
+      where: {
+        status: { in: ["pending", "publishing"] },
+        post: { autoPublish: true, status: { in: AUTO_PUBLISH_STATUSES } },
+      },
+    }),
     prisma.contentPostTarget.count({
       where: { status: { in: ["pending", "publishing"] }, post: { scheduledAt: { gte: start, lt: end } } },
     }),
@@ -230,6 +236,8 @@ export type TargetRow = {
   format: PublishFormat;
   status: "pending" | "publishing" | "published" | "failed";
   autoPublish: boolean;
+  /** İçerik onaylandı mı — otomatik paylaşım yalnızca onaylı içerikte çalışır. */
+  approved: boolean;
   scheduledAt: string;
   publishedAt: string | null;
   nextAttemptAt: string | null;
@@ -259,6 +267,7 @@ export async function listSocialTargets(): Promise<TargetRow[]> {
           caption: true,
           scheduledAt: true,
           autoPublish: true,
+          status: true,
           tenant: { select: { id: true, name: true, slug: true } },
           media: {
             orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -284,6 +293,7 @@ export async function listSocialTargets(): Promise<TargetRow[]> {
       format: t.format as PublishFormat,
       status: t.status,
       autoPublish: t.post.autoPublish,
+      approved: AUTO_PUBLISH_STATUSES.includes(t.post.status),
       scheduledAt: t.post.scheduledAt.toISOString(),
       publishedAt: t.publishedAt?.toISOString() ?? null,
       nextAttemptAt: t.nextAttemptAt?.toISOString() ?? null,

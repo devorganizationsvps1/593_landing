@@ -102,13 +102,15 @@ export function validateTarget(target: TargetShape, media: MediaShape[], caption
   const label = SOCIAL_PLATFORM_LABEL[target.platform];
   const v = media.find((m) => m.kind === "video");
 
+  // Kural: medya ve açıklama olmadan hiçbir platformda paylaşım yapılmaz.
+  if (total === 0) errs.push(`${label}: medya olmadan paylaşılamaz.`);
+  if (!caption.trim()) errs.push(`${label}: açıklama olmadan paylaşılamaz.`);
   if (caption.length > CAPTION_LIMIT[target.platform]) {
     errs.push(`${label}: metin en fazla ${CAPTION_LIMIT[target.platform]} karakter olabilir.`);
   }
 
   switch (`${target.platform}:${target.format}`) {
     case "instagram:post":
-      if (total === 0) errs.push("Instagram gönderisi için en az 1 görsel veya video gerekli.");
       if (total > 10) errs.push("Instagram carousel en fazla 10 öğe alır.");
       break;
     case "instagram:reel":
@@ -118,10 +120,9 @@ export function validateTarget(target: TargetShape, media: MediaShape[], caption
       break;
     case "instagram:story":
     case "facebook:story":
-      if (total !== 1) errs.push(`${label} hikâyesi için tam 1 görsel veya video gerekli.`);
+      if (total > 1) errs.push(`${label} hikâyesi için tek görsel veya video seçin.`);
       break;
     case "facebook:post":
-      if (total === 0 && !caption.trim()) errs.push("Facebook gönderisi için metin veya medya gerekli.");
       if (videos > 0 && (videos > 1 || images > 0)) {
         errs.push("Facebook gönderisinde video tek başına olmalı (fotoğrafla karışık olamaz).");
       }

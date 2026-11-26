@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { ContentPostStatus } from "@prisma/client";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
+import { SocialIcon } from "@/components/panel/ds/social-icons";
 import {
   ACCEPTED_IMAGE_TYPES,
   ACCEPTED_VIDEO_TYPES,
@@ -116,15 +118,20 @@ function putWithProgress(url: string, file: File, onProgress: (p: number) => voi
 }
 
 /**
- * İçerik detayında otomatik paylaşım: medya yükleme, platform / format seçimi,
- * zamanında otomatik paylaşım ve paylaşım durumu (canlı link, hata, tekrar dene).
+ * İçerik detayında otomatik paylaşım: medya yükleme, seçili platformların
+ * formatı, zamanında otomatik paylaşım ve paylaşım durumu (canlı link, hata,
+ * tekrar dene). Platformlar içerik formunun üstünden gelir; ayarlar formun
+ * "Kaydet" düğmesiyle (`saveRef`) birlikte kaydedilir.
  */
 export default function PublishPanel({
   postId,
   tenantSlug,
   caption,
   scheduledAt,
+  platforms,
+  status,
   canEdit,
+  saveRef,
   unsaved,
 }: {
   postId: string;
@@ -132,8 +139,14 @@ export default function PublishPanel({
   /** Formdaki (kaydedilmemiş olabilir) içerik metni — doğrulama için. */
   caption: string;
   scheduledAt: string;
+  /** Formda seçili, otomatik paylaşım destekli platformlar. */
+  platforms: SocialPlatformKey[];
+  /** Formdaki içerik durumu — otomatik paylaşım yalnızca "approved"da çalışır. */
+  status: ContentPostStatus;
   canEdit: boolean;
-  /** Formda kaydedilmemiş metin / tarih değişikliği var mı. */
+  /** Formun "Kaydet"i bunu çağırır: değişiklik varsa ayarları kaydeder, son durumu döner. */
+  saveRef: MutableRefObject<(() => Promise<PublishState | null>) | null>;
+  /** Formda kaydedilmemiş değişiklik var mı (metin, tarih, platform, durum). */
   unsaved: boolean;
 }) {
   const [state, setState] = useState<PublishState | null>(null);
@@ -259,12 +272,25 @@ export default function PublishPanel({
     }).catch(() => setError("Sıralama kaydedilemedi"));
   }
 
-  async function saveSettings(): Promise<boolean> {
-    if (!drafts) return false;
+  /** Hedef olacak platformlar: formda seçili, hesabı bağlı, yayın motoru hazır. */
+  const wanted = (st: PublishState) => {
+    const connected = new Set(st.accounts.map((a) => a.platform));
+    return SOCIAL_PLATFORMS.filter((p) => platforms.includes(p) && connected.has(p) && PUBLISHER_READY[p]);
+  };
+
+  function needsSave(st: PublishState): boolean {
+    const now = wanted(st).join();
+    const saved = SOCIAL_PLATFORMS.filter((p) => st.targets.some((t) => t.platform === p)).join();
+    return dirty || autoPublish !== st.autoPublish || now !== saved;
+  }
+
+  async function saveSettings(): Promise<PublishState | null> {
+    if (!drafts || !state) return null;
+    if (!needsSave(state)) return state;
     setBusy("save");
     setError(null);
     try {
-      const targets = SOCIAL_PLATFORMS.filter((p) => drafts[p].enabled).map((p) => ({
+      const targets = wanted(state).map((p) => ({
         platform: p,
         format: drafts[p].format,
         captionOverride: drafts[p].captionOverride || null,
@@ -279,17 +305,25 @@ export default function PublishPanel({
       const j = (await res.json()) as { state?: PublishState; error?: string };
       if (!res.ok || !j.state) throw new Error(j.error || "Kaydedilemedi");
       apply(j.state, true);
-      return true;
+      return j.state;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kaydedilemedi");
-      return false;
+      return null;
     } finally {
       setBusy(null);
     }
   }
 
+  // Formun "Kaydet"i her render'daki güncel işlevi çağırsın.
+  useEffect(() => {
+    saveRef.current = saveSettings;
+    return () => {
+      saveRef.current = null;
+    };
+  });
+
   async function publishNow(platforms?: SocialPlatformKey[], action: "now" | "retry" = "now") {
-    if (dirty && !(await saveSettings())) return;
+    if (!(await saveSettings())) return;
     if (action === "now" && !confirm("Seçili platformlarda şimdi paylaşılsın mı?")) return;
     setBusy(action);
     setError(null);
@@ -327,7 +361,9 @@ export default function PublishPanel({
 
   const accountOf = new Map(state.accounts.map((a) => [a.platform, a]));
   const targetOf = new Map(state.targets.map((t) => [t.platform, t]));
-  const enabled = SOCIAL_PLATFORMS.filter((p) => drafts[p].enabled);
+  const enabled = wanted(state);
+  const shown = SOCIAL_PLATFORMS.filter((p) => platforms.includes(p));
+  const approved = status === "approved" || status === "published";
   const issues = enabled.flatMap((p) =>
     validateTarget(
       { platform: p, format: drafts[p].format, title: drafts[p].title },
@@ -351,7 +387,7 @@ export default function PublishPanel({
         <div>
           <h4 className="text-sm font-semibold text-[#141111]">Otomatik paylaşım</h4>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Medyayı yükleyin, platformları seçin. Metin olarak içerik metni kullanılır.
+            Medyayı yükleyin, formatı seçin. Metin olarak içerik metni kullanılır.
           </p>
         </div>
         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-[#141111]">
@@ -455,31 +491,29 @@ export default function PublishPanel({
         )}
       </div>
 
-      {/* ── platformlar ── */}
+      {/* ── platformlar (formun üstünde seçilir) ── */}
+      {shown.length === 0 ? (
+        <p className="rounded-lg bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+          Otomatik paylaşım için yukarıdaki “Platformlar” bölümünden Instagram veya Facebook seçin.
+        </p>
+      ) : null}
       <ul className="space-y-2">
-        {SOCIAL_PLATFORMS.map((p) => {
-          const d = drafts[p];
+        {shown.map((p) => {
+          const d = { ...drafts[p], enabled: enabled.includes(p) };
           const account = accountOf.get(p);
           const target = targetOf.get(p);
           const ready = PUBLISHER_READY[p];
           const isLocked = locked(p);
-          const disabled = !canEdit || !account || !ready || isLocked;
           return (
             <li key={p} className={`rounded-lg border px-3 py-2.5 ${d.enabled ? "border-zinc-300 bg-white" : "border-zinc-200 bg-zinc-50"}`}>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <label className={`inline-flex items-center gap-2 text-sm font-medium ${account && ready ? "text-[#141111]" : "text-zinc-400"}`}>
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-[#e91825]"
-                    checked={d.enabled}
-                    disabled={disabled}
-                    onChange={(e) => patchDraft(p, { enabled: e.target.checked })}
-                  />
+                <span className={`inline-flex items-center gap-2 text-sm font-medium ${account && ready ? "text-[#141111]" : "text-zinc-400"}`}>
+                  <SocialIcon platform={p} brand={Boolean(account && ready)} className="size-4" />
                   {SOCIAL_PLATFORM_LABEL[p]}
-                </label>
+                </span>
                 <span className="min-w-0 truncate text-xs text-zinc-500">
                   {!ready ? (
-                    "Yakında"
+                    "Otomatik paylaşım yakında — elle paylaşılır"
                   ) : account ? (
                     account.username ? `@${account.username}` : account.name
                   ) : (
@@ -581,7 +615,13 @@ export default function PublishPanel({
           ))}
         </ul>
       ) : null}
-      {autoPublish && past && unpublished.length > 0 ? (
+      {autoPublish && !approved && unpublished.length > 0 ? (
+        <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">
+          Otomatik paylaşım için içeriğin durumunu <strong>Onaylandı</strong> yapın. Onaylanana kadar zamanı gelse de
+          paylaşılmaz.
+        </p>
+      ) : null}
+      {autoPublish && approved && past && unpublished.length > 0 ? (
         <p className="text-xs text-amber-800">
           Paylaşım tarihi geçmiş — kaydedince bir dakika içinde paylaşılır.
         </p>
@@ -590,20 +630,18 @@ export default function PublishPanel({
 
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={btnSecondary} disabled={!dirty || busy !== null} onClick={() => void saveSettings()}>
-            {busy === "save" ? "Kaydediliyor…" : "Paylaşım ayarlarını kaydet"}
-          </button>
           <button
             type="button"
             className={btnPrimary}
             disabled={busy !== null || unpublished.length === 0 || issues.length > 0 || unsaved || inFlight}
-            title={unsaved ? "Önce içerikteki değişiklikleri kaydedin" : undefined}
+            title={unsaved ? "Önce Kaydet'e basın" : undefined}
             onClick={() => void publishNow(unpublished)}
           >
             {busy === "now" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
             Şimdi paylaş
           </button>
-          {unsaved ? <span className="text-xs text-zinc-500">İçerik metni / tarihi kaydedilmedi.</span> : null}
+          {unsaved ? <span className="text-xs text-zinc-500">Kaydedilmemiş değişiklik var — önce Kaydet.</span> : null}
+          {busy === "save" ? <span className="text-xs text-zinc-500">Paylaşım ayarları kaydediliyor…</span> : null}
         </div>
       ) : null}
     </section>

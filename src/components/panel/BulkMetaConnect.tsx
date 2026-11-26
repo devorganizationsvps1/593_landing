@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -25,12 +24,14 @@ type RowState = "idle" | "busy" | "done" | "error";
 export default function BulkMetaConnect({
   rows,
   onClose,
+  onChanged,
 }: {
   /** Facebook'u bağlı olmayan markalar (görünürler önce). */
   rows: AccountMatrixRow[];
   onClose: () => void;
+  /** Bağlama sonrası tablo yenilensin (ebeveynin yenileme göstergesiyle). */
+  onChanged: () => void;
 }) {
-  const router = useRouter();
   const [pages, setPages] = useState<MetaPageOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [choice, setChoice] = useState<Record<string, string>>({});
@@ -130,7 +131,7 @@ export default function BulkMetaConnect({
     }
     setRunning(false);
     setFinished(true);
-    router.refresh();
+    onChanged();
   }
 
   return (

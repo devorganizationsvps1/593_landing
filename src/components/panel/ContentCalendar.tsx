@@ -15,13 +15,18 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Clock,
+  Loader2,
   PanelLeft,
   Plus,
   Search,
+  Send,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,6 +34,8 @@ import type { ContentPostStatus } from "@prisma/client";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
 import { SocialIcon, isSocialIconKey } from "@/components/panel/ds/social-icons";
 import PublishPanel from "@/components/panel/PublishPanel";
+import { isSocialPlatform, PUBLISHER_READY } from "@/lib/social/formats";
+import type { PublishState } from "@/lib/social/state";
 import { RichText } from "@/components/panel/RichText";
 import { brandInitials, resolveBrandCover } from "@/lib/panel/brand-logos";
 import {
@@ -66,6 +73,7 @@ const STATUS_GLYPH: Record<ContentPostStatus, string> = {
   draft: "○",
   design: "◐",
   review: "◑",
+  approved: "◕",
   published: "●",
 };
 
@@ -92,7 +100,8 @@ type Draft = {
   id: string | null;
   tenantId: string;
   title: string;
-  platform: ContentPlatform;
+  /** Planlanan platformlar; ilki birincil. Otomatik paylaşım hedefleri bunlardan. */
+  platforms: ContentPlatform[];
   scheduledAt: string; // datetime-local
   status: ContentPostStatus;
   brief: string;
@@ -161,7 +170,7 @@ function emptyDraft(tenantId: string, date: Date): Draft {
     id: null,
     tenantId,
     title: "",
-    platform: "instagram",
+    platforms: ["instagram"],
     scheduledAt: toLocalInput(date.toISOString()),
     status: "draft",
     brief: "",
@@ -177,9 +186,12 @@ function draftFromPost(p: SerializedPost): Draft {
     id: p.id,
     tenantId: p.tenantId,
     title: p.title,
-    platform: (CONTENT_PLATFORMS as readonly string[]).includes(p.platform)
-      ? (p.platform as ContentPlatform)
-      : "instagram",
+    platforms: (() => {
+      const valid = p.platforms.filter((x): x is ContentPlatform =>
+        (CONTENT_PLATFORMS as readonly string[]).includes(x),
+      );
+      return valid.length ? valid : ["instagram"];
+    })(),
     scheduledAt: toLocalInput(p.scheduledAt),
     status: p.status,
     brief: p.brief,
@@ -197,7 +209,7 @@ function draftPayload(d: Draft) {
   return {
     tenantId: d.tenantId,
     title: d.title,
-    platform: d.platform,
+    platforms: d.platforms,
     scheduledAt: at.toISOString(),
     status: d.status,
     brief: d.brief,
@@ -213,7 +225,7 @@ function postPayload(p: SerializedPost) {
   return {
     tenantId: p.tenantId,
     title: p.title,
-    platform: p.platform,
+    platforms: p.platforms,
     scheduledAt: p.scheduledAt,
     status: p.status,
     brief: p.brief,
@@ -396,6 +408,8 @@ export default function ContentCalendar({
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** PublishPanel kendi kaydetme işlevini buraya bağlar — tek "Kaydet" ikisini de kaydeder. */
+  const publishSave = useRef<(() => Promise<PublishState | null>) | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
@@ -554,7 +568,7 @@ export default function ContentCalendar({
     return posts.filter(
       (p) =>
         (selectedTenants.size === 0 || selectedTenants.has(p.tenantId)) &&
-        (selectedPlatforms.size === 0 || selectedPlatforms.has(p.platform)) &&
+        (selectedPlatforms.size === 0 || p.platforms.some((x) => selectedPlatforms.has(x))) &&
         (!status || p.status === status) &&
         (!q ||
           p.title.toLocaleLowerCase("tr").includes(q) ||
@@ -704,8 +718,23 @@ export default function ContentCalendar({
         setError(j?.error || "Kaydedilemedi");
         return;
       }
-      const saved = j.post;
+      let saved = j.post;
       const before = draft.id ? posts.find((p) => p.id === draft.id) : undefined;
+      // Paylaşım ayarları (hedef formatları, otomatik paylaşım) aynı Kaydet ile.
+      if (draft.id && publishSave.current) {
+        const st = await publishSave.current();
+        if (!st) {
+          setPosts((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+          openDraft(draftFromPost(saved));
+          setError("İçerik kaydedildi, ancak paylaşım ayarları kaydedilemedi — aşağıdaki uyarıyı kontrol edin.");
+          return;
+        }
+        saved = {
+          ...saved,
+          autoPublish: st.autoPublish,
+          publish: st.targets.map((t) => ({ platform: t.platform, status: t.status, permalink: t.permalink })),
+        };
+      }
       setPosts((prev) =>
         prev.some((p) => p.id === saved.id)
           ? prev.map((p) => (p.id === saved.id ? saved : p))
@@ -726,6 +755,13 @@ export default function ContentCalendar({
             return true;
           },
         });
+        // Otomatik paylaşılabilir platform seçildiyse pencere açık kalır: medya
+        // yükleme ve paylaşım ayarları ancak kayıtlı içerikte açılır.
+        if (draft.platforms.some((p) => isSocialPlatform(p) && PUBLISHER_READY[p])) {
+          openDraft(draftFromPost(saved));
+          router.refresh();
+          return;
+        }
       } else if (before) {
         const { tenantId: _t, ...prevBody } = postPayload(before);
         void _t;
@@ -1111,6 +1147,8 @@ export default function ContentCalendar({
                 <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
                   Renk = marka · dolu = paylaşıldı · kesik = taslak
                   <br />
+                  Saat ikonu = otomatik paylaşılacak · mavi = onay bekliyor
+                  <br />
                   Marka / platforma tıkla: yalnızca o · tekrar tıkla: tümü
                   <br />
                   Kısayollar: T bugün · ← → gezin · M/W/D görünüm
@@ -1377,21 +1415,6 @@ export default function ContentCalendar({
                   </select>
                 </label>
                 <label className="text-xs text-zinc-600">
-                  Platform
-                  <select
-                    className={`${fieldClass} mt-1 w-full`}
-                    value={draft.platform}
-                    disabled={!canEdit}
-                    onChange={(e) => setDraft({ ...draft, platform: e.target.value as ContentPlatform })}
-                  >
-                    {CONTENT_PLATFORMS.map((p) => (
-                      <option key={p} value={p}>
-                        {PLATFORM_LABEL[p]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-xs text-zinc-600">
                   Paylaşım tarihi ve saati
                   <input
                     type="datetime-local"
@@ -1401,21 +1424,83 @@ export default function ContentCalendar({
                     onChange={(e) => setDraft({ ...draft, scheduledAt: e.target.value })}
                   />
                 </label>
-                <label className="text-xs text-zinc-600">
-                  Durum
-                  <select
-                    className={`${fieldClass} mt-1 w-full`}
-                    value={draft.status}
-                    disabled={!canEdit}
-                    onChange={(e) => setDraft({ ...draft, status: e.target.value as ContentPostStatus })}
+
+                <div className="text-xs text-zinc-600 sm:col-span-2">
+                  <p>Platformlar</p>
+                  <div className="mt-1 flex flex-wrap gap-1.5" role="group" aria-label="Platformlar">
+                    {CONTENT_PLATFORMS.map((p) => {
+                      const on = draft.platforms.includes(p);
+                      const auto = isSocialPlatform(p) && PUBLISHER_READY[p];
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          aria-pressed={on}
+                          disabled={!canEdit}
+                          title={auto ? "Otomatik paylaşılabilir" : "Yalnızca planlama — elle paylaşılır"}
+                          onClick={() => {
+                            const next = on
+                              ? draft.platforms.filter((x) => x !== p)
+                              : [...draft.platforms, p];
+                            if (next.length) setDraft({ ...draft, platforms: next });
+                          }}
+                          className={`inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition disabled:opacity-60 ${
+                            on
+                              ? "bg-[#141111] text-white"
+                              : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200/70 hover:text-zinc-900"
+                          }`}
+                        >
+                          <span className={`flex size-5 items-center justify-center rounded-full ${on ? "bg-white" : ""}`}>
+                            <SocialIcon platform={p} brand className="size-3.5" />
+                          </span>
+                          {PLATFORM_LABEL[p]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-[11px] text-zinc-400">
+                    Instagram ve Facebook otomatik paylaşılabilir; diğerleri planlama içindir.
+                  </p>
+                </div>
+
+                <div className="text-xs text-zinc-600 sm:col-span-2">
+                  <p>Durum</p>
+                  <div
+                    className="mt-1 flex w-full overflow-x-auto rounded-full bg-zinc-100 p-1"
+                    role="radiogroup"
+                    aria-label="Durum"
                   >
-                    {CONTENT_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABEL[s]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    {CONTENT_STATUSES.map((st, i) => {
+                      const on = draft.status === st;
+                      const passed = CONTENT_STATUSES.indexOf(draft.status) > i;
+                      return (
+                        <button
+                          key={st}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          disabled={!canEdit}
+                          onClick={() => setDraft({ ...draft, status: st })}
+                          className={`inline-flex h-8 min-w-0 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs font-medium transition focus-visible:outline-offset-[-2px] ${
+                            on
+                              ? st === "approved"
+                                ? "bg-violet-600 text-white shadow-sm"
+                                : st === "published"
+                                  ? "bg-emerald-600 text-white shadow-sm"
+                                  : "bg-white text-zinc-900 shadow-sm"
+                              : passed
+                                ? "text-zinc-700 hover:text-zinc-900"
+                                : "text-zinc-400 hover:text-zinc-700"
+                          }`}
+                        >
+                          {passed ? <Check className="size-3" aria-hidden /> : null}
+                          {STATUS_LABEL[st]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <label className="text-xs text-zinc-600">
                   Sorumlu (Sosyal Medya)
                   <select
@@ -1467,7 +1552,7 @@ export default function ContentCalendar({
                   />
                 </label>
                 <label className="text-xs text-zinc-600 sm:col-span-2">
-                  Görsel / video bağlantıları (her satıra bir URL)
+                  Tasarım dosyası bağlantıları (Drive vb., her satıra bir URL)
                   <textarea
                     className="mt-1 min-h-16 w-full rounded-xl border border-zinc-300 bg-white px-4 py-2 font-mono text-xs text-[#141111] focus:border-[#141111] focus:outline-none"
                     value={draft.mediaUrls}
@@ -1502,15 +1587,20 @@ export default function ContentCalendar({
                   tenantSlug={current.tenantSlug}
                   caption={draft.caption}
                   scheduledAt={current.scheduledAt}
+                  platforms={draft.platforms.filter(isSocialPlatform)}
+                  status={draft.status}
                   canEdit={canEdit}
+                  saveRef={publishSave}
                   unsaved={
                     draft.caption.trim() !== current.caption.trim() ||
-                    draft.scheduledAt !== toLocalInput(current.scheduledAt)
+                    draft.scheduledAt !== toLocalInput(current.scheduledAt) ||
+                    draft.platforms.join() !== current.platforms.join() ||
+                    draft.status !== current.status
                   }
                 />
               ) : canEdit ? (
                 <p className="mt-4 rounded-xl border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500">
-                  Medya yükleme ve otomatik paylaşım (Instagram, Facebook, TikTok, YouTube) içerik kaydedildikten sonra açılır.
+                  Medya yükleme ve otomatik paylaşım içerik kaydedildikten sonra açılır.
                 </p>
               ) : null}
 
@@ -1785,7 +1875,8 @@ const EventChip = memo(function EventChip({
 }) {
   const published = post.status === "published";
   const draft = post.status === "draft";
-  const platform = PLATFORM_LABEL[post.platform as ContentPlatform] ?? post.platform;
+  const platform = post.platforms.map((p) => PLATFORM_LABEL[p as ContentPlatform] ?? p).join(", ");
+  const pub = publishBadge(post);
   const label = post.title || platform;
   const base: CSSProperties = published
     ? { background: color, color: "#fff", borderColor: color }
@@ -1797,8 +1888,8 @@ const EventChip = memo(function EventChip({
         boxShadow: `inset 3px 0 0 ${color}`,
       };
   const titleAttr = `${post.tenantName} · ${platform} · ${STATUS_LABEL[post.status]} · ${fmtTime(post.scheduledAt)}${
-    post.title ? `\n${post.title}` : ""
-  }`;
+    pub ? ` · ${pub.label}` : ""
+  }${post.title ? `\n${post.title}` : ""}`;
 
   return (
     <button
@@ -1847,6 +1938,14 @@ const EventChip = memo(function EventChip({
           </span>
         ) : null}
       </span>
+      {pub ? (
+        <span
+          className={`order-last shrink-0 ${size === "sm" ? "mt-[2px]" : "mt-0.5"} ${published ? "text-white" : pub.tone}`}
+          aria-label={pub.label}
+        >
+          <pub.Icon className={`${size === "lg" ? "size-4" : "size-3"} ${pub.spin ? "animate-spin" : ""}`} aria-hidden />
+        </span>
+      ) : null}
       <span className="min-w-0 flex-1">
         <span className={`block ${size === "lg" ? "whitespace-normal break-words font-semibold leading-snug" : "truncate font-medium"}`}>
           {size === "sm" ? (
@@ -1868,6 +1967,33 @@ const EventChip = memo(function EventChip({
     </button>
   );
 });
+
+/** Otomatik paylaşım durumunun takvim kartındaki özeti (hedef yoksa null). */
+function publishBadge(
+  post: SerializedPost,
+): { Icon: typeof Clock; tone: string; label: string; spin?: boolean } | null {
+  const t = post.publish;
+  if (!t.length) return null;
+  const names = (s: string) =>
+    t
+      .filter((x) => x.status === s)
+      .map((x) => PLATFORM_LABEL[x.platform as ContentPlatform] ?? x.platform)
+      .join(", ");
+  if (t.some((x) => x.status === "failed")) {
+    return { Icon: AlertTriangle, tone: "text-rose-600", label: `Paylaşım hatası: ${names("failed")}` };
+  }
+  if (t.some((x) => x.status === "publishing")) {
+    return { Icon: Loader2, tone: "text-amber-600", label: "Paylaşılıyor", spin: true };
+  }
+  if (t.every((x) => x.status === "published")) {
+    return { Icon: CheckCircle2, tone: "text-emerald-600", label: `Paylaşıldı: ${names("published")}` };
+  }
+  if (!post.autoPublish) return { Icon: Send, tone: "text-zinc-400", label: "Elle paylaşılacak" };
+  if (post.status !== "approved") {
+    return { Icon: Clock, tone: "text-sky-600", label: "Otomatik paylaşım onay bekliyor" };
+  }
+  return { Icon: Clock, tone: "text-violet-600", label: `Otomatik paylaşılacak: ${names("pending")}` };
+}
 
 /* ───────────────────────── ay görünümü ───────────────────────── */
 

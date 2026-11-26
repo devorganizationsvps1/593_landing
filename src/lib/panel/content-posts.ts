@@ -25,18 +25,28 @@ export const PLATFORM_LABEL: Record<ContentPlatform, string> = {
   youtube: "YouTube",
 };
 
-export const CONTENT_STATUSES: ContentPostStatus[] = ["draft", "design", "review", "published"];
+export const CONTENT_STATUSES: ContentPostStatus[] = ["draft", "design", "review", "approved", "published"];
 
 export const STATUS_LABEL: Record<ContentPostStatus, string> = {
   draft: "Taslak",
   design: "Tasarımda",
   review: "Onayda",
+  approved: "Onaylandı",
   published: "Paylaşıldı",
 };
 
 export function isPlatform(v: unknown): v is ContentPlatform {
   return typeof v === "string" && (CONTENT_PLATFORMS as readonly string[]).includes(v);
 }
+
+/** Geçerli, tekrarsız platform listesi (sıra korunur); geçersizler atılır. */
+export function cleanPlatforms(v: unknown): ContentPlatform[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter(isPlatform))];
+}
+
+/** Otomatik paylaşımın çalışabildiği içerik durumları. */
+export const AUTO_PUBLISH_STATUSES: ContentPostStatus[] = ["approved"];
 
 export function isContentStatus(v: unknown): v is ContentPostStatus {
   return typeof v === "string" && (CONTENT_STATUSES as string[]).includes(v);
@@ -49,6 +59,7 @@ export const postInclude = {
   assignee: { select: userSelect },
   designer: { select: userSelect },
   boardCard: { select: { id: true, column: { select: { name: true } } } },
+  targets: { select: { platform: true, status: true, permalink: true } },
 } satisfies Prisma.ContentPostInclude;
 
 export type PostWithRelations = Prisma.ContentPostGetPayload<{ include: typeof postInclude }>;
@@ -60,8 +71,13 @@ export type SerializedPost = {
   tenantSlug: string;
   title: string;
   platform: string;
+  /** Planlanan platformlar (ilk = `platform`). */
+  platforms: string[];
   scheduledAt: string;
   status: ContentPostStatus;
+  autoPublish: boolean;
+  /** Otomatik paylaşım hedeflerinin durumu (takvim kartı için). */
+  publish: { platform: string; status: "pending" | "publishing" | "published" | "failed"; permalink: string | null }[];
   brief: string;
   caption: string;
   mediaUrls: string[];
@@ -86,8 +102,11 @@ export function serializePost(p: PostWithRelations): SerializedPost {
     tenantSlug: p.tenant.slug,
     title: p.title,
     platform: p.platform,
+    platforms: p.platforms.length ? p.platforms : [p.platform],
     scheduledAt: p.scheduledAt.toISOString(),
     status: p.status,
+    autoPublish: p.autoPublish,
+    publish: p.targets.map((t) => ({ platform: t.platform, status: t.status, permalink: t.permalink })),
     brief: p.brief,
     caption: p.caption,
     mediaUrls: p.mediaUrls,
@@ -147,7 +166,9 @@ export async function createDesignCardForPost(opts: {
     post.brief.trim() ? `Brief:\n${post.brief.trim()}` : null,
     post.caption.trim() ? `Metin:\n${post.caption.trim()}` : null,
     post.mediaUrls.length ? `Görsel / video:\n${post.mediaUrls.join("\n")}` : null,
-    `Platform: ${PLATFORM_LABEL[post.platform as ContentPlatform] ?? post.platform}`,
+    `Platform: ${(post.platforms.length ? post.platforms : [post.platform])
+      .map((p) => PLATFORM_LABEL[p as ContentPlatform] ?? p)
+      .join(", ")}`,
   ]
     .filter(Boolean)
     .join("\n\n");

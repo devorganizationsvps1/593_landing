@@ -16,6 +16,7 @@ import {
   Link2,
   Info,
   Loader2,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
@@ -23,6 +24,8 @@ import {
   X,
 } from "lucide-react";
 import BulkMetaConnect from "@/components/panel/BulkMetaConnect";
+import LinkCalendarPosts from "@/components/panel/LinkCalendarPosts";
+import SocialComposer from "@/components/panel/SocialComposer";
 import { toolChip, toolField, toolPrimary, toolSelect } from "@/components/panel/ds/buttons";
 import { SocialIcon } from "@/components/panel/ds/social-icons";
 import {
@@ -115,6 +118,7 @@ type PostGroup = {
   thumb: TargetRow["thumb"];
   mediaCount: number;
   autoPublish: boolean;
+  approved: boolean;
   /** Sıralama ve gün başlığı için kullanılan an. */
   at: string;
   targets: TargetRow[];
@@ -145,6 +149,7 @@ function groupByPost(rows: TargetRow[], tab: Tab): PostGroup[] {
         thumb: r.thumb,
         mediaCount: r.mediaCount,
         autoPublish: r.autoPublish,
+        approved: r.approved,
         at,
         targets: [r],
       });
@@ -186,6 +191,9 @@ export default function SocialPublishingDashboard({
   const [todayOnly, setTodayOnly] = useState(false);
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  /** Paylaşım penceresi: null = kapalı, { postId: null } = yeni. */
+  const [compose, setCompose] = useState<{ postId: string | null } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -262,6 +270,13 @@ export default function SocialPublishingDashboard({
   );
   const metaConnected = matrix.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
   const unconnected = useMemo(() => matrix.filter((m) => !m.accounts.facebook), [matrix]);
+  const metaBrands = useMemo(
+    () =>
+      matrix
+        .filter((m) => m.accounts.instagram || m.accounts.facebook)
+        .sort((a, b) => a.tenantName.localeCompare(b.tenantName, "tr")),
+    [matrix],
+  );
 
   const listFiltersActive = Boolean(tenantId || platform || todayOnly);
   const hasActiveFilters = Boolean(q) || (tab === "accounts" ? onlyMissing : listFiltersActive);
@@ -397,13 +412,22 @@ export default function SocialPublishingDashboard({
               )}
               Yenile
             </button>
-            <Link
-              href="/takvim"
-              className={toolPrimary}
-            >
+            {canEdit ? (
+              <button type="button" onClick={() => setLinkOpen(true)} className={toolChip()}>
+                <Link2 className="size-3.5" aria-hidden />
+                Takvimdeki içerikleri bağla
+              </button>
+            ) : null}
+            <Link href="/takvim" className={toolChip()}>
               <CalendarDays className="size-3.5" aria-hidden />
-              Takvimde planla
+              Takvim
             </Link>
+            {canEdit ? (
+              <button type="button" onClick={() => setCompose({ postId: null })} className={toolPrimary}>
+                <Plus className="size-3.5" aria-hidden />
+                Yeni paylaşım
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -569,7 +593,17 @@ export default function SocialPublishingDashboard({
       ) : null}
 
       {/* ── içerik ── */}
-      {bulkOpen ? <BulkMetaConnect rows={unconnected} onClose={() => setBulkOpen(false)} /> : null}
+      {bulkOpen ? <BulkMetaConnect rows={unconnected} onClose={() => setBulkOpen(false)} onChanged={refresh} /> : null}
+      {linkOpen ? <LinkCalendarPosts onClose={() => setLinkOpen(false)} onChanged={refresh} /> : null}
+      {compose ? (
+        <SocialComposer
+          key={compose.postId ?? "new"}
+          brands={metaBrands}
+          postId={compose.postId}
+          onClose={() => setCompose(null)}
+          onChanged={refresh}
+        />
+      ) : null}
 
       {tab === "accounts" ? (
         <AccountsTable rows={matrixRows} total={matrix.length} canEdit={canEdit} />
@@ -601,6 +635,7 @@ export default function SocialPublishingDashboard({
                       busy={busy}
                       onRetry={retry}
                       onRemove={remove}
+                      onOpen={(id) => setCompose({ postId: id })}
                     />
                   ))}
                 </ul>
@@ -694,6 +729,7 @@ function PostRow({
   busy,
   onRetry,
   onRemove,
+  onOpen,
 }: {
   group: PostGroup;
   tab: Tab;
@@ -702,9 +738,10 @@ function PostRow({
   busy: string | null;
   onRetry: (r: TargetRow) => void;
   onRemove: (g: PostGroup) => void;
+  /** Paylaşım penceresinde aç. */
+  onOpen: (postId: string) => void;
 }) {
   const removable = canEdit && g.targets.some((t) => t.status === "published" && DELETABLE.has(t.platform));
-  const href = `/takvim?post=${g.postId}`;
   const late = tab === "upcoming" && g.at < now && g.targets.some((t) => t.status === "pending");
   const problems = g.targets.filter((t) => t.lastError && t.status !== "published");
   const retryAt = g.targets.find((t) => t.status === "pending" && t.nextAttemptAt)?.nextAttemptAt;
@@ -716,10 +753,11 @@ function PostRow({
         {late ? <p className="text-[10px] font-semibold text-amber-700">gecikti</p> : null}
       </div>
 
-      <Link
-        href={href}
+      <button
+        type="button"
+        onClick={() => onOpen(g.postId)}
         className="relative size-12 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100"
-        aria-label="İçeriği takvimde aç"
+        aria-label="Paylaşımı aç"
       >
         {g.thumb?.kind === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -738,13 +776,17 @@ function PostRow({
             {g.mediaCount}
           </span>
         ) : null}
-      </Link>
+      </button>
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-col gap-x-2 sm:flex-row sm:items-baseline">
-          <Link href={href} className="min-w-0 truncate text-sm font-semibold text-zinc-900 hover:underline">
+          <button
+            type="button"
+            onClick={() => onOpen(g.postId)}
+            className="min-w-0 truncate text-left text-sm font-semibold text-zinc-900 hover:underline"
+          >
             {g.title}
-          </Link>
+          </button>
           <Link
             href={`/brands/${g.tenantSlug}#sosyal-hesaplar`}
             className="shrink-0 self-start text-xs text-zinc-500 hover:text-zinc-900 hover:underline sm:self-auto"
@@ -757,6 +799,15 @@ function PostRow({
           {g.targets.map((t) => (
             <TargetChip key={t.id} target={t} />
           ))}
+          {tab === "upcoming" && g.autoPublish && !g.approved ? (
+            <span
+              className="inline-flex h-6 items-center gap-1 rounded-full bg-sky-50 px-2 text-[11px] font-medium text-sky-800"
+              title="Otomatik paylaşım için içeriğin durumu takvimde “Onaylandı” olmalı."
+            >
+              <Clock className="size-3" aria-hidden />
+              Onay bekliyor
+            </span>
+          ) : null}
           {tab === "upcoming" && !g.autoPublish ? (
             <span
               className="inline-flex h-6 items-center gap-1 rounded-full bg-zinc-100 px-2 text-[11px] font-medium text-zinc-600"
@@ -869,7 +920,7 @@ function EmptyList({ tab, filtered, onClear }: { tab: Tab; filtered: boolean; on
   const text = filtered
     ? "Bu filtrelerle eşleşen paylaşım yok."
     : tab === "upcoming"
-      ? "Sırada paylaşım yok. Takvimde bir içeriği açıp “Otomatik paylaşım” bölümünden platform seçin."
+      ? "Sırada paylaşım yok. “Yeni paylaşım” ile planlayın ya da takvimdeki içerikleri bağlayın."
       : tab === "published"
         ? "Son 30 günde paylaşım yok."
         : "Hatalı paylaşım yok.";

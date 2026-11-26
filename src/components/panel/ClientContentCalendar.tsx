@@ -46,6 +46,12 @@ const STATUS: Record<ContentPostStatus, { label: string; dot: string; chip: stri
     chip: "border-sky-200 bg-sky-50 text-sky-900 hover:bg-sky-100",
     badge: "bg-sky-100 text-sky-800",
   },
+  approved: {
+    label: "Onaylandı",
+    dot: "bg-violet-500",
+    chip: "border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100",
+    badge: "bg-violet-100 text-violet-800",
+  },
   published: {
     label: "Paylaşıldı",
     dot: "bg-emerald-500",
@@ -53,7 +59,7 @@ const STATUS: Record<ContentPostStatus, { label: string; dot: string; chip: stri
     badge: "bg-emerald-100 text-emerald-800",
   },
 };
-const STATUS_ORDER: ContentPostStatus[] = ["draft", "design", "review", "published"];
+const STATUS_ORDER: ContentPostStatus[] = ["draft", "design", "review", "approved", "published"];
 
 function pad(n: number) {
   return String(n).padStart(2, "0");

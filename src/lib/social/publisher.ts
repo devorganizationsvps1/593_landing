@@ -8,6 +8,7 @@
 import type { ContentPostTarget } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { upsertOpenAlert } from "@/lib/panel/alerts-engine";
+import { AUTO_PUBLISH_STATUSES } from "@/lib/panel/content-posts";
 import {
   PUBLISHER_READY,
   SOCIAL_PLATFORM_LABEL,
@@ -172,7 +173,7 @@ export async function runDuePublishes(): Promise<{ claimed: number }> {
           {
             status: "pending",
             AND: [{ OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] }],
-            post: { autoPublish: true, scheduledAt: { lte: now } },
+            post: { autoPublish: true, scheduledAt: { lte: now }, status: { in: AUTO_PUBLISH_STATUSES } },
           },
           { status: "publishing", lockedAt: { lt: staleBefore() } },
         ],

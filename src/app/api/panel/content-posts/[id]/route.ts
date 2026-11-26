@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { audit, diffFields } from "@/lib/panel/audit";
 import {
+  cleanPlatforms,
   createDesignCardForPost,
   isContentStatus,
   isPlatform,
@@ -9,6 +10,7 @@ import {
   serializePost,
 } from "@/lib/panel/content-posts";
 import { requirePermissionApi, resolveStaffUserId } from "@/lib/panel/staff-auth";
+import { isSocialPlatform } from "@/lib/social/formats";
 import { notifyTaskAssigned } from "@/lib/panel/task-notify";
 
 export const runtime = "nodejs";
@@ -18,6 +20,7 @@ type Ctx = { params: Promise<{ id: string }> };
 type PatchBody = {
   title?: string;
   platform?: string;
+  platforms?: string[];
   scheduledAt?: string;
   status?: string;
   brief?: string;
@@ -76,7 +79,19 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
   const data: Parameters<typeof prisma.contentPost.update>[0]["data"] = {};
   if (body.title !== undefined) data.title = body.title.trim();
-  if (body.platform !== undefined && isPlatform(body.platform)) data.platform = body.platform;
+  let platforms: string[] | null = null;
+  if (body.platforms !== undefined) {
+    platforms = cleanPlatforms(body.platforms);
+    if (!platforms.length) {
+      return NextResponse.json({ error: "En az bir platform seçin" }, { status: 400 });
+    }
+  } else if (body.platform !== undefined && isPlatform(body.platform)) {
+    platforms = [body.platform];
+  }
+  if (platforms) {
+    data.platforms = platforms;
+    data.platform = platforms[0]!;
+  }
   if (body.scheduledAt !== undefined) {
     const d = new Date(body.scheduledAt);
     if (Number.isNaN(d.getTime())) {
@@ -98,6 +113,16 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
   if (Object.keys(data).length > 0) {
     const updated = await prisma.contentPost.update({ where: { id }, data });
+    // Platform listeden çıkarıldıysa henüz paylaşılmamış hedefi de düşer.
+    if (platforms) {
+      await prisma.contentPostTarget.deleteMany({
+        where: {
+          postId: id,
+          status: { in: ["pending", "failed"] },
+          platform: { notIn: platforms.filter(isSocialPlatform) },
+        },
+      });
+    }
     if (
       existing.boardCardId &&
       updated.scheduledAt.getTime() !== existing.scheduledAt.getTime()

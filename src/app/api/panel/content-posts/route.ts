@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/panel/audit";
 import {
+  cleanPlatforms,
   isContentStatus,
   isPlatform,
   listContentPosts,
@@ -49,6 +50,7 @@ type CreateBody = {
   tenantId?: string;
   title?: string;
   platform?: string;
+  platforms?: string[];
   scheduledAt?: string;
   status?: string;
   brief?: string;
@@ -76,7 +78,9 @@ export async function POST(request: Request) {
   if (!scheduledAt || scheduledAt === "invalid") {
     return NextResponse.json({ error: "Paylaşım tarihi gerekli" }, { status: 400 });
   }
-  const platform = isPlatform(body.platform) ? body.platform : "instagram";
+  const requested = cleanPlatforms(body.platforms);
+  const platforms = requested.length ? requested : [isPlatform(body.platform) ? body.platform : "instagram"];
+  const platform = platforms[0]!;
   const status = isContentStatus(body.status) ? body.status : "draft";
   const assigneeId = body.assigneeId?.trim() || null;
   const designerId = body.designerId?.trim() || null;
@@ -87,6 +91,7 @@ export async function POST(request: Request) {
       tenantId,
       title: body.title?.trim() ?? "",
       platform,
+      platforms,
       scheduledAt,
       status,
       brief: body.brief?.trim() ?? "",
@@ -103,7 +108,7 @@ export async function POST(request: Request) {
     entity: "content_post",
     entityId: post.id,
     tenantId,
-    summary: `${tenant.name}: içerik eklendi (${platform})`,
+    summary: `${tenant.name}: içerik eklendi (${platforms.join(", ")})`,
     after: { title: post.title, platform, scheduledAt, status },
   });
   return NextResponse.json({ post: serializePost(post) }, { status: 201 });

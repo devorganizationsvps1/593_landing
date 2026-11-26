@@ -87,7 +87,10 @@ enum BrandNoteKind {
 enum ContentPostStatus {
   draft
   design
+  /// Onay bekliyor.
   review
+  /// Onaylandı — otomatik paylaşım yalnızca bu durumda çalışır.
+  approved
   published
 }
 
@@ -1010,8 +1013,11 @@ model ContentPost {
   id          String            @id @default(cuid())
   tenantId    String
   title       String            @default("")
+  /// Birincil platform (= platforms[0]); eski kayıtlar ve kart ikonu için.
   /// instagram | facebook | tiktok | linkedin | x | youtube
   platform    String            @default("instagram")
+  /// Planlanan tüm platformlar. Otomatik paylaşım hedefleri bunlardan seçilir.
+  platforms   String[]          @default([])
   scheduledAt DateTime
   status      ContentPostStatus @default(draft)
   brief       String            @default("")

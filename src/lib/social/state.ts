@@ -43,6 +43,17 @@ export type SerializedTarget = {
 export type PublishState = {
   postId: string;
   autoPublish: boolean;
+  /** İçeriğin kendisi (Paylaşımlar penceresi düzenleme için). */
+  post: {
+    tenantId: string;
+    tenantName: string;
+    tenantSlug: string;
+    title: string;
+    caption: string;
+    scheduledAt: string;
+    status: string;
+    platforms: string[];
+  };
   accounts: SerializedSocialAccount[];
   media: SerializedMedia[];
   targets: SerializedTarget[];
@@ -76,7 +87,13 @@ export async function loadPublishState(postId: string): Promise<PublishState | n
     select: {
       id: true,
       autoPublish: true,
-      tenant: { select: { socialAccounts: { orderBy: { platform: "asc" } } } },
+      title: true,
+      caption: true,
+      scheduledAt: true,
+      status: true,
+      platform: true,
+      platforms: true,
+      tenant: { select: { id: true, name: true, slug: true, socialAccounts: { orderBy: { platform: "asc" } } } },
       media: { orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
       targets: { orderBy: { platform: "asc" } },
     },
@@ -85,6 +102,16 @@ export async function loadPublishState(postId: string): Promise<PublishState | n
   return {
     postId: post.id,
     autoPublish: post.autoPublish,
+    post: {
+      tenantId: post.tenant.id,
+      tenantName: post.tenant.name,
+      tenantSlug: post.tenant.slug,
+      title: post.title,
+      caption: post.caption,
+      scheduledAt: post.scheduledAt.toISOString(),
+      status: post.status,
+      platforms: post.platforms.length ? post.platforms : [post.platform],
+    },
     accounts: post.tenant.socialAccounts.map(serializeAccount),
     media: post.media.map((m) => ({
       id: m.id,
