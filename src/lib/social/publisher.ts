@@ -108,7 +108,7 @@ async function processTarget(targetId: string): Promise<void> {
         externalId: result.externalId,
         permalink: result.permalink,
         publishedAt: new Date(),
-        lastError: null,
+        lastError: result.warning ?? null,
         lockedAt: null,
         nextAttemptAt: null,
         progressRef: null,

@@ -31,6 +31,8 @@ export type PublishContext = {
 export type PublishResult = {
   externalId: string;
   permalink: string | null;
+  /** Paylaşım yapıldı ama yan adım (ör. YouTube kapağı) başarısız — kartta uyarı olarak gösterilir. */
+  warning?: string;
 };
 
 export type Publisher = (ctx: PublishContext) => Promise<PublishResult>;

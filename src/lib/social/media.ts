@@ -8,7 +8,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { type OutputInfo, type Sharp } from "sharp";
 import type { ContentMedia } from "@prisma/client";
 import { rootDomain } from "@/lib/panel/host";
 import { s3Delete, s3Enabled, s3Get, s3GetRange, s3Head, s3Put, s3SignedGetUrl, s3SignedPutUrl } from "@/lib/storage/s3";
@@ -184,6 +184,47 @@ export async function normalizeImage(
     width: out.info.width,
     height: out.info.height,
   };
+}
+
+/** YouTube kapak sınırı 2 MB; önerilen 1280×720, en az 640 px genişlik. */
+export const THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
+export const THUMBNAIL_MIN_WIDTH = 640;
+/** Panelden yüklenebilecek ham kapak dosyası (proxy gövde sınırının altında). */
+export const THUMBNAIL_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Kapak görselini JPEG'e çevirip (en çok 1920×1080, 2 MB altı) depolar.
+ * Geçersiz / küçük görselde açıklayıcı hata fırlatır.
+ */
+export async function storeThumbnail(postId: string, input: Buffer): Promise<{ key: string; width: number; height: number }> {
+  let base: Sharp;
+  try {
+    base = sharp(input, { failOn: "error" })
+      .rotate()
+      .resize({ width: 1920, height: 1080, fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" });
+    await base.clone().metadata();
+  } catch {
+    throw new Error("Görsel okunamadı");
+  }
+  let out: { data: Buffer; info: OutputInfo } | null = null;
+  for (const quality of [90, 80, 70, 60]) {
+    out = await base.clone().jpeg({ quality, mozjpeg: true }).toBuffer({ resolveWithObject: true });
+    if (out.data.length <= THUMBNAIL_MAX_BYTES) break;
+  }
+  if (!out || out.data.length > THUMBNAIL_MAX_BYTES) throw new Error("Kapak 2 MB altına indirilemedi");
+  if (out.info.width < THUMBNAIL_MIN_WIDTH) {
+    throw new Error(`Kapak en az ${THUMBNAIL_MIN_WIDTH} px genişliğinde olmalı (16:9 yatay görsel önerilir)`);
+  }
+  const key = newKey(postId, "image/jpeg");
+  if (s3Enabled()) await s3Put(key, out.data, "image/jpeg");
+  else await writeLocalMedia(key, out.data);
+  return { key, width: out.info.width, height: out.info.height };
+}
+
+/** Panel içi kapak önizlemesi (staff oturumu ister). */
+export function thumbnailPreviewUrl(postId: string, key: string): string {
+  return `/api/panel/content-posts/${postId}/thumbnail?${new URLSearchParams({ key })}`;
 }
 
 /** Meta / TikTok gibi platformların dosyayı indireceği herkese açık (süreli) URL. */

@@ -1133,6 +1133,8 @@ model ContentPostTarget {
   title           String?
   /// TikTok / YouTube görünürlüğü (public | private | unlisted …).
   privacy         String?
+  /// YouTube özel kapak görseli (depolama anahtarı, JPEG). Yalnızca "video" formatında.
+  thumbnailKey    String?
   status          PublishStatus  @default(pending)
   attempts        Int            @default(0)
   nextAttemptAt   DateTime?

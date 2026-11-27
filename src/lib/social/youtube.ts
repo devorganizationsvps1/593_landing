@@ -14,7 +14,8 @@
  * Not: Google denetiminden geçmemiş projelerde yüklenen videolar YouTube
  * tarafından "Gizli"ye çekilir; kota varsayılanı günde ~6 yüklemedir.
  */
-import { headMedia, readMediaRange } from "@/lib/social/media";
+import type { SocialAccount } from "@prisma/client";
+import { headMedia, readMedia, readMediaRange } from "@/lib/social/media";
 import {
   accessTokenFor,
   OAuthRevokedError,
@@ -30,10 +31,16 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const API = "https://www.googleapis.com/youtube/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/youtube/v3/videos";
+const THUMBNAIL_API = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 
+/**
+ * youtube.upload: video yükleme · youtube.readonly: bağlanan kanalı tanıma ·
+ * youtube.force-ssl: panelden "Sil" ile videoyu kaldırma (videos.delete).
+ */
 export const YOUTUBE_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/youtube.force-ssl",
 ];
 
 /** 256 KiB'ın katı olmalı (son parça hariç). */
@@ -176,6 +183,39 @@ export const youtubeOAuth: OAuthProvider = {
   },
 };
 
+/* ───────────────────────── silme ───────────────────────── */
+
+/** Paylaşılmış videoyu kanaldan kaldırır (`videos.delete`). Zaten silinmişse sessizce geçer. */
+export async function deleteYoutubeVideo(account: SocialAccount, videoId: string): Promise<void> {
+  let token = await accessTokenFor(account, youtubeOAuth);
+  const call = (t: string) =>
+    fetch(`${API}/videos?${new URLSearchParams({ id: videoId })}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${t}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+  let res: Response;
+  try {
+    res = await call(token);
+    if (res.status === 401) {
+      token = await accessTokenFor(account, youtubeOAuth, { force: true });
+      res = await call(token);
+    }
+  } catch (err) {
+    throw new PublishError(`YouTube'a ulaşılamadı: ${(err as Error).message}`);
+  }
+  if (res.ok || res.status === 404) return;
+  const json = (await res.json().catch(() => null)) as ApiErr | null;
+  const reason = json?.error?.errors?.[0]?.reason;
+  if (reason === "videoNotFound") return;
+  if (res.status === 403) {
+    throw new PublishError(
+      "Silme izni yok — marka sayfasından YouTube kanalını “Kanalı değiştir” ile bir kez yeniden bağlayın.",
+    );
+  }
+  throw apiError(json, res.status);
+}
+
 /* ───────────────────────── yükleme ───────────────────────── */
 
 type Ref = { kind: "upload"; url: string } | { kind: "video"; id: string };
@@ -208,6 +248,47 @@ function buildMetadata(ctx: PublishContext) {
 
 function permalinkFor(id: string, short: boolean): string {
   return short ? `https://www.youtube.com/shorts/${id}` : `https://youtu.be/${id}`;
+}
+
+/**
+ * Özel kapak (`thumbnails.set`). Video zaten yüklendiği için hata yayını
+ * düşürmez; açıklayıcı uyarı metni döner.
+ */
+async function setThumbnail(
+  videoId: string,
+  key: string,
+  authed: (fn: (t: string) => Promise<Response>) => Promise<Response>,
+): Promise<string | undefined> {
+  const prefix = "Video yüklendi ama kapak eklenemedi";
+  try {
+    const img = await readMedia(key);
+    if (!img) return `${prefix}: kapak dosyası bulunamadı.`;
+    const body = new Uint8Array(img);
+    // Yeni yüklenen video kısa süre işlenirken kapak reddedilebilir → birkaç kez dene.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await authed((t) =>
+        fetch(`${THUMBNAIL_API}?${new URLSearchParams({ videoId, uploadType: "media" })}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${t}`, "Content-Type": "image/jpeg", "Content-Length": String(body.byteLength) },
+          body,
+          signal: AbortSignal.timeout(60_000),
+        }),
+      );
+      if (res.ok) return undefined;
+      const json = (await res.json().catch(() => null)) as ApiErr | null;
+      const reason = json?.error?.errors?.[0]?.reason;
+      if (res.status === 403 || reason === "forbidden") {
+        return `${prefix}: kanalın YouTube'da telefonla doğrulanması gerekiyor (youtube.com/verify). Kapağı YouTube Studio'dan da ekleyebilirsiniz.`;
+      }
+      if (res.status < 500 && reason !== "backendError" && attempt > 0) {
+        return `${prefix}: ${json?.error?.message || `HTTP ${res.status}`}`;
+      }
+      await sleep(5000 * (attempt + 1));
+    }
+    return `${prefix}: YouTube yanıt vermedi. Kapağı YouTube Studio'dan ekleyebilirsiniz.`;
+  } catch (err) {
+    return `${prefix}: ${(err as Error).message}`;
+  }
 }
 
 type UploadStatus = { done: true; id: string } | { done: false; next: number } | { expired: true };
@@ -259,7 +340,9 @@ export async function publishYoutube(ctx: PublishContext): Promise<PublishResult
 
   const finish = async (id: string): Promise<PublishResult> => {
     await save(`yt:video:${id}`);
-    return { externalId: id, permalink: permalinkFor(id, short) };
+    const warning =
+      !short && target.thumbnailKey ? await setThumbnail(id, target.thumbnailKey, authed) : undefined;
+    return { externalId: id, permalink: permalinkFor(id, short), warning };
   };
 
   /** Yükleme oturumunun durumu (nereden devam edileceği). */

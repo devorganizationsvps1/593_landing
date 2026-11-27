@@ -61,7 +61,19 @@ type Item = {
   durationSec: number | null;
 } & ({ remoteId: string; file?: undefined } | { remoteId?: undefined; file: File });
 
-type PlatformDraft = { format: PublishFormat; captionOverride: string; title: string; privacy: string };
+type PlatformDraft = {
+  format: PublishFormat;
+  captionOverride: string;
+  title: string;
+  privacy: string;
+  /** YouTube kapak: kayıtlı anahtar ya da henüz yüklenmemiş dosya. */
+  thumbKey: string | null;
+  thumbUrl: string | null;
+  thumbFile: File | null;
+};
+
+/** Sunucu ham kapak dosyasını en çok bu boyutta kabul eder. */
+const THUMB_UPLOAD_MAX = 10 * 1024 * 1024;
 
 const defaultPrivacy = (p: SocialPlatformKey) => PRIVACY_OPTIONS[p]?.[0]?.value ?? "";
 
@@ -239,6 +251,9 @@ export default function SocialComposer({
                 captionOverride: t.captionOverride ?? "",
                 title: t.title ?? "",
                 privacy: t.privacy ?? defaultPrivacy(t.platform),
+                thumbKey: t.thumbnailKey,
+                thumbUrl: t.thumbnailUrl,
+                thumbFile: null,
               },
             ]),
           ),
@@ -341,9 +356,32 @@ export default function SocialComposer({
         captionOverride: d[p]?.captionOverride ?? "",
         title: d[p]?.title ?? "",
         privacy: d[p]?.privacy ?? defaultPrivacy(p),
+        thumbKey: d[p]?.thumbKey ?? null,
+        thumbUrl: d[p]?.thumbUrl ?? null,
+        thumbFile: d[p]?.thumbFile ?? null,
         ...patch,
       },
     }));
+  }
+
+  const [thumbError, setThumbError] = useState<string | null>(null);
+  const thumbInput = useRef<HTMLInputElement>(null);
+
+  function pickThumb(file: File | undefined) {
+    setThumbError(null);
+    if (thumbInput.current) thumbInput.current.value = "";
+    if (!file) return;
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      setThumbError("Kapak JPG, PNG veya WebP olmalı.");
+      return;
+    }
+    if (file.size > THUMB_UPLOAD_MAX) {
+      setThumbError("Kapak dosyası en fazla 10 MB olabilir.");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    blobUrls.current.push(url);
+    patchDraft("youtube", { thumbFile: file, thumbUrl: url, thumbKey: null });
   }
 
   /** İçerik → medya (sil / yükle / sırala) → hedefler → (şimdi ise) paylaş. */
@@ -443,6 +481,27 @@ export default function SocialComposer({
         });
       }
 
+      // YouTube kapağı (yalnızca normal videoda kullanılır).
+      const thumbKeys: Partial<Record<SocialPlatformKey, string | null>> = {};
+      for (const p of platforms) {
+        const d = drafts[p];
+        if (p !== "youtube" || formatOf(p) !== "video" || !d) continue;
+        if (d.thumbFile) {
+          setPhase({ kind: "working", step: "Kapak görseli yükleniyor…" });
+          const fd = new FormData();
+          fd.append("file", d.thumbFile);
+          const up = await json<{ key: string; url: string }>(
+            await fetch(`/api/panel/content-posts/${id}/thumbnail`, { method: "POST", body: fd }),
+            "Kapak görseli yüklenemedi",
+          );
+          thumbKeys[p] = up.key;
+          // Yüklenen kapak kayıtlı — hata olursa tekrar yüklenmesin.
+          patchDraft(p, { thumbKey: up.key, thumbFile: null });
+        } else {
+          thumbKeys[p] = d.thumbKey;
+        }
+      }
+
       setPhase({ kind: "working", step: "Paylaşım ayarları kaydediliyor…" });
       const { state } = await json<{ state: PublishState }>(
         await fetch(`/api/panel/content-posts/${id}/publish`, {
@@ -456,6 +515,7 @@ export default function SocialComposer({
               captionOverride: drafts[p]?.captionOverride.trim() || null,
               title: drafts[p]?.title.trim() || null,
               privacy: drafts[p]?.privacy || defaultPrivacy(p) || null,
+              thumbnailKey: thumbKeys[p] ?? null,
             })),
           }),
         }),
@@ -522,7 +582,10 @@ export default function SocialComposer({
             ) : (
               <span className="ml-auto text-emerald-700">Paylaşıldı</span>
             )
-          ) : t.status === "failed" ? (
+          ) : null}
+          {t.status === "published" && t.lastError ? (
+            <span className="w-full break-words text-xs text-amber-700">{t.lastError}</span>
+          ) : t.status === "published" ? null : t.status === "failed" ? (
             <span className="w-full break-words text-xs text-rose-700">{t.lastError || "Hata"}</span>
           ) : t.status === "publishing" ? (
             <span className="ml-auto inline-flex items-center gap-1 text-amber-700">
@@ -836,6 +899,46 @@ export default function SocialComposer({
                               ))}
                             </select>
                           </label>
+                          {formatOf(p) === "video" ? (
+                            <div className="text-xs text-zinc-600 sm:col-span-2">
+                              <p>
+                                Kapak görseli <span className="text-zinc-400">· isteğe bağlı · 16:9, en az 640 px genişlik</span>
+                              </p>
+                              <input
+                                ref={thumbInput}
+                                type="file"
+                                accept={ACCEPTED_IMAGE_TYPES.join(",")}
+                                className="hidden"
+                                onChange={(e) => pickThumb(e.target.files?.[0])}
+                              />
+                              <div className="mt-1 flex items-center gap-2">
+                                {drafts[p]?.thumbUrl ? (
+                                  <div className="relative aspect-video w-40 overflow-hidden rounded-lg bg-zinc-100">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={drafts[p]!.thumbUrl!} alt="Kapak" className="h-full w-full object-cover" />
+                                    <button
+                                      type="button"
+                                      aria-label="Kapağı kaldır"
+                                      className="absolute right-1 top-1 rounded-full bg-white/90 p-0.5 text-rose-600"
+                                      onClick={() => patchDraft(p, { thumbKey: null, thumbUrl: null, thumbFile: null })}
+                                    >
+                                      <X className="size-3.5" />
+                                    </button>
+                                  </div>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => thumbInput.current?.click()}
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 hover:ring-zinc-400"
+                                >
+                                  <ImagePlus className="size-4" aria-hidden />
+                                  {drafts[p]?.thumbUrl ? "Değiştir" : "Kapak seç"}
+                                </button>
+                              </div>
+                              {thumbError ? <p className="mt-1 text-rose-700">{thumbError}</p> : null}
+                              <p className="mt-1 text-zinc-400">Kanal YouTube&apos;da telefonla doğrulanmış olmalı; değilse video kapaksız yüklenir.</p>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                       {formatOf(p) === "story" ? (

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { PublishFormat, SocialPlatformKey } from "@/lib/social/formats";
-import { previewUrl } from "@/lib/social/media";
+import { previewUrl, thumbnailPreviewUrl } from "@/lib/social/media";
 
 export type SerializedSocialAccount = {
   id: string;
@@ -32,6 +32,9 @@ export type SerializedTarget = {
   captionOverride: string | null;
   title: string | null;
   privacy: string | null;
+  /** YouTube kapak görseli. */
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
   status: "pending" | "publishing" | "published" | "failed";
   attempts: number;
   nextAttemptAt: string | null;
@@ -131,6 +134,8 @@ export async function loadPublishState(postId: string): Promise<PublishState | n
       captionOverride: t.captionOverride,
       title: t.title,
       privacy: t.privacy,
+      thumbnailKey: t.thumbnailKey,
+      thumbnailUrl: t.thumbnailKey ? thumbnailPreviewUrl(post.id, t.thumbnailKey) : null,
       status: t.status,
       attempts: t.attempts,
       nextAttemptAt: t.nextAttemptAt?.toISOString() ?? null,

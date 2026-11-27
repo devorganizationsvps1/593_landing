@@ -8,7 +8,9 @@ import {
   PRIVACY_OPTIONS,
   type SocialPlatformKey,
 } from "@/lib/social/formats";
+import { deleteMedia, isValidMediaKey } from "@/lib/social/media";
 import { deleteMetaPost } from "@/lib/social/meta";
+import { deleteYoutubeVideo } from "@/lib/social/youtube";
 import { publishPostNow } from "@/lib/social/publisher";
 import { PublishError } from "@/lib/social/types";
 import { loadPublishState } from "@/lib/social/state";
@@ -34,6 +36,8 @@ type TargetInput = {
   captionOverride?: string | null;
   title?: string | null;
   privacy?: string | null;
+  /** YouTube kapak görseli (POST thumbnail'den dönen anahtar). */
+  thumbnailKey?: string | null;
 };
 
 /**
@@ -75,6 +79,15 @@ export async function PUT(request: Request, ctx: Ctx) {
       captionOverride: t.captionOverride?.trim() || null,
       title: t.title?.trim().slice(0, 100) || null,
       privacy,
+      // Kapak yalnızca YouTube normal videoda; Shorts'ta YouTube kullanmıyor.
+      thumbnailKey:
+        t.platform === "youtube" &&
+        t.format === "video" &&
+        typeof t.thumbnailKey === "string" &&
+        t.thumbnailKey.endsWith(".jpg") &&
+        isValidMediaKey(t.thumbnailKey, id)
+          ? t.thumbnailKey
+          : null,
     });
   }
 
@@ -108,6 +121,7 @@ export async function PUT(request: Request, ctx: Ctx) {
         captionOverride: t.captionOverride,
         title: t.title,
         privacy: t.privacy,
+        thumbnailKey: t.thumbnailKey,
         socialAccountId: accountOf.get(platform)!,
       };
       await tx.contentPostTarget.upsert({
@@ -121,6 +135,21 @@ export async function PUT(request: Request, ctx: Ctx) {
       await tx.contentPost.update({ where: { id }, data: { autoPublish: body.autoPublish } });
     }
   });
+
+  // Değiştirilen / kaldırılan kapak dosyaları silinir (en iyi çaba).
+  const stillUsed = new Set(
+    (
+      await prisma.contentPostTarget.findMany({
+        where: { postId: id, thumbnailKey: { not: null } },
+        select: { thumbnailKey: true },
+      })
+    ).map((t) => t.thumbnailKey),
+  );
+  for (const old of post.targets) {
+    if (old.thumbnailKey && !stillUsed.has(old.thumbnailKey)) {
+      await deleteMedia(old.thumbnailKey).catch((err) => console.error("[thumbnail delete]", err));
+    }
+  }
 
   await audit(session, {
     action: "content_post.publish_settings",
@@ -262,7 +291,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
     });
     return NextResponse.json({ ok: true, removed });
   }
-  if (platform !== "instagram" && platform !== "facebook") {
+  if (platform !== "instagram" && platform !== "facebook" && platform !== "youtube") {
     return NextResponse.json({ error: "Bu platformdan silme desteklenmiyor" }, { status: 400 });
   }
   const target = await prisma.contentPostTarget.findUnique({
@@ -282,9 +311,10 @@ export async function DELETE(request: Request, ctx: Ctx) {
   }
 
   try {
-    await deleteMetaPost(account, target.externalId);
+    if (platform === "youtube") await deleteYoutubeVideo(account, target.externalId);
+    else await deleteMetaPost(account, target.externalId);
   } catch (err) {
-    const msg = err instanceof PublishError ? err.message : "Meta'da silinemedi";
+    const msg = err instanceof PublishError ? err.message : "Platformda silinemedi";
     if (!(err instanceof PublishError)) console.error("[social-delete]", err);
     return NextResponse.json({ error: msg }, { status: 502 });
   }
@@ -296,6 +326,9 @@ export async function DELETE(request: Request, ctx: Ctx) {
       await tx.contentPost.update({ where: { id }, data: { status: "review" } });
     }
   });
+  if (target.thumbnailKey) {
+    await deleteMedia(target.thumbnailKey).catch((err) => console.error("[thumbnail delete]", err));
+  }
   await audit(session, {
     action: "content_post.unpublish",
     entity: "content_post",

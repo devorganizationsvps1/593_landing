@@ -79,11 +79,15 @@ const sections: LegalSection[] = [
             Kanala video yükleme yetkisi (<em>youtube.upload</em>) — yalnızca Panel&apos;de planlanan ve marka adına
             paylaşılması onaylanan videoları yüklemek için;
           </li>
-          <li>Yüklenen videonun kimliği ve bağlantısı (paylaşım durumunu göstermek için).</li>
+          <li>Yüklenen videonun kimliği ve bağlantısı (paylaşım durumunu göstermek için);</li>
+          <li>
+            Video silme yetkisi (<em>youtube.force-ssl</em>) — yalnızca Panel&apos;den yüklenmiş bir video için yetkili
+            kullanıcı Panel&apos;de açıkça &ldquo;Sil&rdquo; komutunu verdiğinde o videoyu kanaldan kaldırmak için.
+          </li>
         </ul>
         <p>
-          Kanalınızdaki diğer videoları, yorumları, abonelerinizi veya özel verilerinizi okumayız; videolarınızı
-          silmeyiz veya değiştirmeyiz.
+          Kanalınızdaki diğer videoları, yorumları, abonelerinizi veya özel verilerinizi okumayız; Panel dışında
+          yüklenmiş videolarınızı silmeyiz veya değiştirmeyiz.
         </p>
         <p>
           Google&apos;dan aldığımız erişim ve yenileme anahtarları (token) veritabanımızda şifrelenmiş olarak saklanır,

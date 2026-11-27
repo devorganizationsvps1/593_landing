@@ -56,7 +56,7 @@ const TZ = "Europe/Istanbul";
 type Tab = "upcoming" | "published" | "failed" | "draft" | "accounts";
 
 /** Paylaşımı platformdan silmeyi destekleyen platformlar. */
-const DELETABLE = new Set<SocialPlatformKey>(["instagram", "facebook"]);
+const DELETABLE = new Set<SocialPlatformKey>(["instagram", "facebook", "youtube"]);
 
 const LEVEL_DOT: Record<HealthLevel, string> = {
   ok: "bg-emerald-500",
@@ -998,6 +998,16 @@ function PostRow({
           </div>
         ) : null}
 
+        {g.targets
+          .filter((t) => t.status === "published" && t.lastError)
+          .map((t) => (
+            <p key={`warn-${t.id}`} className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">
+                <span className="font-semibold">{SOCIAL_PLATFORM_LABEL[t.platform]}:</span> {t.lastError}
+              </span>
+            </p>
+          ))}
         {problems.length ? (
           <ul className="mt-2 space-y-1.5">
             {problems.map((t) => (
