@@ -159,8 +159,14 @@ export default function SiteFooter() {
         </div>
 
         <div className="mt-14 flex flex-col gap-2 sm:mt-16 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[12px] text-white/35">
-            © {new Date().getFullYear()} 593 E-Marketing
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-white/35">
+            <span>© {new Date().getFullYear()} 593 E-Marketing</span>
+            <Link href="/gizlilik-politikasi" className="transition hover:text-[#f4f1ea]">
+              Gizlilik Politikası
+            </Link>
+            <Link href="/kullanim-sartlari" className="transition hover:text-[#f4f1ea]">
+              Kullanım Şartları
+            </Link>
           </p>
           <p className="text-[12px] text-white/25">
             Tasarım · Strateji · Dönüşüm
