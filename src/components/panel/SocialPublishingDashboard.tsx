@@ -288,7 +288,7 @@ export default function SocialPublishingDashboard({
   );
   /** Kartlarda marka logosu. */
   const brandCover = useMemo(() => new Map(matrix.map((m) => [m.tenantId, m.coverUrl])), [matrix]);
-  const metaConnected = listed.filter((m) => m.accounts.instagram || m.accounts.facebook).length;
+  const metaConnected = listed.filter((m) => ACCOUNT_PLATFORMS.some((p) => m.accounts[p])).length;
   // Toplu bağla gizli markaları da alır; pencerede yalnızca sayfa eşleşmesi olanlar gösterilir.
   const unconnected = useMemo(() => matrix.filter((m) => !m.accounts.facebook), [matrix]);
   const takenPageIds = useMemo(
@@ -298,7 +298,7 @@ export default function SocialPublishingDashboard({
   const metaBrands = useMemo(
     () =>
       matrix
-        .filter((m) => m.accounts.instagram || m.accounts.facebook)
+        .filter((m) => ACCOUNT_PLATFORMS.some((p) => m.accounts[p]))
         .sort((a, b) => a.tenantName.localeCompare(b.tenantName, "tr")),
     [matrix],
   );
@@ -1294,7 +1294,8 @@ function AccountsTable({
           <tbody>
             {rows.map((m) => {
               const brandHref = `/brands/${m.tenantSlug}#sosyal-hesaplar`;
-              const linked = isConnected(m);
+              // "Bağla" düğmesi Meta bağlama penceresini açar; YouTube hücreden bağlanır.
+              const linked = Boolean(m.accounts.instagram || m.accounts.facebook);
               const hasError = ACCOUNT_PLATFORMS.some((p) => m.accounts[p]?.lastError);
               return (
                 <tr key={m.tenantId} className="border-t border-zinc-100 transition hover:bg-zinc-50/70">
@@ -1318,6 +1319,22 @@ function AccountsTable({
 
                   {ACCOUNT_PLATFORMS.map((p) => {
                     const a = m.accounts[p];
+                    if (!a && p === "youtube") {
+                      return (
+                        <td key={p} className="px-3 py-2.5">
+                          {canEdit ? (
+                            <a
+                              href={`/api/social/oauth/youtube/start?tenant=${encodeURIComponent(m.tenantSlug)}`}
+                              className="text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:underline"
+                            >
+                              Kanal bağla
+                            </a>
+                          ) : (
+                            <span className="text-xs text-zinc-300">—</span>
+                          )}
+                        </td>
+                      );
+                    }
                     if (!a) {
                       return (
                         <td key={p} className="px-3 py-2.5">
@@ -1387,7 +1404,7 @@ function AccountsTable({
 
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-zinc-100 bg-zinc-50/70 px-4 py-2.5 text-xs text-zinc-500">
         <Info className="size-3.5 shrink-0" aria-hidden />
-        Instagram, bağlı olduğu Facebook sayfasıyla birlikte gelir.
+        Instagram, bağlı olduğu Facebook sayfasıyla birlikte gelir. YouTube kanalı Google girişiyle bağlanır.
         {SOON_PLATFORMS.length ? (
           <span className="inline-flex items-center gap-1">
             {SOON_PLATFORMS.map((p) => (

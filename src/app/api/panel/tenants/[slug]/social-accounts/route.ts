@@ -4,6 +4,8 @@ import { audit } from "@/lib/panel/audit";
 import { requirePermissionApi, requirePortalViewApi, resolveStaffUserId } from "@/lib/panel/staff-auth";
 import { isSocialPlatform } from "@/lib/social/formats";
 import { listMetaPages } from "@/lib/social/meta";
+import { openToken } from "@/lib/crypto/token-box";
+import { oauthProvider } from "@/lib/social/oauth-providers";
 import { serializeAccount } from "@/lib/social/state";
 
 export const runtime = "nodejs";
@@ -110,6 +112,19 @@ export async function DELETE(request: Request, ctx: Ctx) {
   const platform = new URL(request.url).searchParams.get("platform");
   if (!isSocialPlatform(platform)) {
     return NextResponse.json({ error: "Geçersiz platform" }, { status: 400 });
+  }
+  const existing = await prisma.socialAccount.findUnique({
+    where: { tenantId_platform: { tenantId: tenant.id, platform } },
+  });
+  // OAuth hesaplarında platformdaki izin de geri alınır (en iyi çaba).
+  const provider = existing?.authSource === "oauth" ? oauthProvider(platform) : null;
+  const token = provider ? openToken(existing!.refreshTokenEnc) ?? openToken(existing!.accessTokenEnc) : null;
+  if (provider?.revoke && token) {
+    try {
+      await provider.revoke(token);
+    } catch (err) {
+      console.error("[social-oauth] revoke", err);
+    }
   }
   const { count } = await prisma.socialAccount.deleteMany({ where: { tenantId: tenant.id, platform } });
   if (count) {

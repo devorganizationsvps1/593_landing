@@ -18,11 +18,13 @@ import {
   type SocialPlatformKey,
 } from "@/lib/social/formats";
 import { publishFacebook, publishInstagram } from "@/lib/social/meta";
+import { publishYoutube } from "@/lib/social/youtube";
 import { PublishError, type Publisher } from "@/lib/social/types";
 
 const PUBLISHERS: Partial<Record<SocialPlatformKey, Publisher>> = {
   instagram: publishInstagram,
   facebook: publishFacebook,
+  youtube: publishYoutube,
 };
 
 const MAX_ATTEMPTS = 4;

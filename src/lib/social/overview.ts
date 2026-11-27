@@ -4,7 +4,8 @@
  */
 import { prisma } from "@/lib/db";
 import { IntegrationNotConfiguredError } from "@/lib/integrations/tokens";
-import { PUBLISHER_READY, type PublishFormat, type SocialPlatformKey } from "@/lib/social/formats";
+import { youtubeOAuth } from "@/lib/social/youtube";
+import { PUBLISHER_READY, SOCIAL_PLATFORM_LABEL, type PublishFormat, type SocialPlatformKey } from "@/lib/social/formats";
 import { createUploadTarget, previewUrl, publicBaseUrl } from "@/lib/social/media";
 import { AUTO_PUBLISH_STATUSES } from "@/lib/panel/content-posts";
 import { listMetaPages, missingMetaPublishScopes } from "@/lib/social/meta";
@@ -171,19 +172,47 @@ async function schedulerHealth(): Promise<HealthItem> {
   return { key: "scheduler", label, level: "ok", summary: `Çalışıyor · son kontrol ${ago}` };
 }
 
+async function youtubeHealth(): Promise<HealthItem> {
+  const label = "YouTube";
+  if (!youtubeOAuth.configured()) {
+    return { key: "youtube", label, level: "warn", summary: "OAuth istemcisi yok", detail: youtubeOAuth.configHint };
+  }
+  const [total, broken] = await Promise.all([
+    prisma.socialAccount.count({ where: { platform: "youtube" } }),
+    prisma.socialAccount.count({ where: { platform: "youtube", status: "error" } }),
+  ]);
+  if (broken) {
+    return {
+      key: "youtube",
+      label,
+      level: "warn",
+      summary: `${broken} kanal yeniden bağlanmalı`,
+      detail: "Marka sayfasındaki Sosyal hesaplar bölümünden “Yeniden bağla”.",
+    };
+  }
+  return { key: "youtube", label, level: "ok", summary: total ? `${total} kanal bağlı` : "Hazır · henüz kanal bağlı değil" };
+}
+
 function platformHealth(): HealthItem {
   const off = (Object.keys(PUBLISHER_READY) as SocialPlatformKey[]).filter((p) => !PUBLISHER_READY[p]);
   return {
     key: "platforms",
-    label: "TikTok + YouTube",
+    label: off.length ? off.map((p) => SOCIAL_PLATFORM_LABEL[p]).join(" + ") : "Diğer platformlar",
     level: off.length ? "info" : "ok",
     summary: off.length ? "Sonraki aşamada (OAuth + uygulama onayı)" : "Etkin",
   };
 }
 
 export async function loadSocialHealth(): Promise<HealthItem[]> {
-  const [meta, storage, scheduler] = await Promise.all([metaHealth(), storageHealth(), schedulerHealth()]);
-  return [meta, storage, scheduler, platformHealth()];
+  const [meta, youtube, storage, scheduler] = await Promise.all([
+    metaHealth(),
+    youtubeHealth().catch(
+      (err): HealthItem => ({ key: "youtube", label: "YouTube", level: "warn", summary: "Durum okunamadı", detail: String(err) }),
+    ),
+    storageHealth(),
+    schedulerHealth(),
+  ]);
+  return [meta, youtube, storage, scheduler, platformHealth()];
 }
 
 /* ───────────────────────── sayaçlar ───────────────────────── */
@@ -342,6 +371,7 @@ export type AccountMatrixRow = {
 function profileHref(platform: string, externalId: string, username: string | null): string | null {
   if (platform === "instagram") return username ? `https://www.instagram.com/${username}/` : null;
   if (platform === "facebook") return `https://www.facebook.com/${externalId}`;
+  if (platform === "youtube") return `https://www.youtube.com/channel/${externalId}`;
   return null;
 }
 

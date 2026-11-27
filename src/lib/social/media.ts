@@ -6,12 +6,12 @@
  * ve dış erişim HMAC imzalı panel route'larından geçer.
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import type { ContentMedia } from "@prisma/client";
 import { rootDomain } from "@/lib/panel/host";
-import { s3Delete, s3Enabled, s3Get, s3Head, s3Put, s3SignedGetUrl, s3SignedPutUrl } from "@/lib/storage/s3";
+import { s3Delete, s3Enabled, s3Get, s3GetRange, s3Head, s3Put, s3SignedGetUrl, s3SignedPutUrl } from "@/lib/storage/s3";
 import {
   ACCEPTED_IMAGE_TYPES,
   ACCEPTED_VIDEO_TYPES,
@@ -127,6 +127,20 @@ export async function readMedia(key: string): Promise<Buffer | null> {
     return await readFile(fsPath(key));
   } catch {
     return null;
+  }
+}
+
+/** [start, end] (dahil) bayt aralığı; dosya yoksa hata fırlatır. */
+export async function readMediaRange(key: string, start: number, end: number): Promise<Buffer> {
+  if (s3Enabled()) return s3GetRange(key, start, end);
+  const fh = await open(fsPath(key), "r");
+  try {
+    const len = end - start + 1;
+    const buf = Buffer.alloc(len);
+    const { bytesRead } = await fh.read(buf, 0, len, start);
+    return bytesRead === len ? buf : buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
   }
 }
 

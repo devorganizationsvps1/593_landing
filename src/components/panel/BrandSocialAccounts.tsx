@@ -1,7 +1,8 @@
 "use client";
 
 import { confirmDialog } from "@/components/panel/ds/confirm";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Link2, Link2Off, Loader2 } from "lucide-react";
 import { btnPrimary, btnSecondary, fieldClass } from "@/components/panel/ds/buttons";
 import {
@@ -21,17 +22,35 @@ export default function BrandSocialAccounts({
   tenantSlug,
   initial,
   canEdit,
+  oauth = {},
 }: {
   tenantSlug: string;
   initial: SerializedSocialAccount[];
   canEdit: boolean;
+  /** OAuth ile bağlanan platformlar → istemci kimliği hazır mı. */
+  oauth?: Partial<Record<SocialPlatformKey, { ready: boolean; hint: string | null }>>;
 }) {
   const [accounts, setAccounts] = useState(initial);
   const [pages, setPages] = useState<MetaPageOption[] | null>(null);
   const [missingScopes, setMissingScopes] = useState<string[] | null>(null);
   const [pageId, setPageId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // OAuth dönüşü: ?social=<platform> | ?social_error=<mesaj> — gösterilir, adresten temizlenir.
+  const search = useSearchParams();
+  const [error, setError] = useState<string | null>(() => search.get("social_error"));
+  const [notice] = useState<string | null>(() => {
+    const ok = search.get("social");
+    return ok && !search.get("social_error")
+      ? `${SOCIAL_PLATFORM_LABEL[ok as SocialPlatformKey] ?? ok} hesabı bağlandı.`
+      : null;
+  });
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("social") && !url.searchParams.has("social_error")) return;
+    url.searchParams.delete("social");
+    url.searchParams.delete("social_error");
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, []);
 
   const byPlatform = new Map(accounts.map((a) => [a.platform, a]));
 
@@ -100,15 +119,19 @@ export default function BrandSocialAccounts({
         <h3 className="text-base font-semibold text-[#141111]">Sosyal hesaplar</h3>
         <p className="mt-1 text-sm text-zinc-500">
           İçerik takviminden otomatik paylaşım yapılacak hesaplar. Meta sayfası BM&apos;de system user&apos;a
-          atanmış olmalı; bağlı Instagram profesyonel hesabı birlikte eklenir.
+          atanmış olmalı; bağlı Instagram profesyonel hesabı birlikte eklenir. YouTube kanalı, kanalın sahibi ya da
+          yöneticisi olan Google hesabıyla giriş yapılarak bağlanır.
         </p>
       </div>
       {error ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
+      {notice ? <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{notice}</p> : null}
 
       <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {SOCIAL_PLATFORMS.map((p) => {
           const a = byPlatform.get(p);
           const ready = PUBLISHER_READY[p];
+          const o = oauth[p];
+          const startHref = `/api/social/oauth/${p}/start?tenant=${encodeURIComponent(tenantSlug)}`;
           return (
             <li key={p} className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-4">
               <div className="flex items-start justify-between gap-2">
@@ -140,13 +163,33 @@ export default function BrandSocialAccounts({
                 </div>
               ) : (
                 <p className="text-xs text-zinc-500">
-                  {ready
-                    ? p === "instagram"
-                      ? "Facebook sayfasıyla birlikte bağlanır."
-                      : "Aşağıdan Meta sayfası seçin."
-                    : "OAuth bağlantısı sonraki aşamada."}
+                  {!ready
+                    ? "OAuth bağlantısı sonraki aşamada."
+                    : o
+                      ? o.ready
+                        ? "Google hesabıyla giriş yapıp kanalı seçin."
+                        : o.hint
+                      : p === "instagram"
+                        ? "Facebook sayfasıyla birlikte bağlanır."
+                        : "Aşağıdan Meta sayfası seçin."}
                 </p>
               )}
+              {ready && o?.ready && canEdit ? (
+                <a
+                  href={startHref}
+                  className={`${a ? "self-start text-xs font-semibold text-zinc-700 hover:underline" : `${btnSecondary} self-start`}`}
+                  aria-disabled={busy !== null}
+                >
+                  {a ? (
+                    a.status === "error" ? "Yeniden bağla" : "Kanalı değiştir"
+                  ) : (
+                    <>
+                      <Link2 className="size-4" aria-hidden />
+                      Kanalı bağla
+                    </>
+                  )}
+                </a>
+              ) : null}
               {a?.lastError ? (
                 <p className="flex items-start gap-1 text-xs text-rose-700">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />

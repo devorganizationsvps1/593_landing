@@ -19,7 +19,7 @@ export const PUBLISHER_READY: Record<SocialPlatformKey, boolean> = {
   instagram: true,
   facebook: true,
   tiktok: false,
-  youtube: false,
+  youtube: true,
 };
 
 export type PublishFormat = "post" | "reel" | "story" | "video" | "short" | "photo";

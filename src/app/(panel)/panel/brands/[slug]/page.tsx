@@ -18,6 +18,7 @@ import TenantSettingsForm from "@/components/panel/TenantSettingsForm";
 import BrandSettingsDisclosure from "@/components/panel/BrandSettingsDisclosure";
 import BrandStatusExplainer from "@/components/panel/BrandStatusExplainer";
 import BrandSocialAccounts from "@/components/panel/BrandSocialAccounts";
+import { oauthAvailability } from "@/lib/social/oauth-providers";
 import { PanelTable } from "@/components/panel/ui";
 import { prisma } from "@/lib/db";
 import {
@@ -548,6 +549,7 @@ export default async function BrandDetailPage({ params, searchParams }: Props) {
           tenantSlug={bundle.tenant.slug}
           initial={socialAccounts}
           canEdit={can(session.user.role, "brands.edit")}
+          oauth={oauthAvailability()}
         />
       ) : null}
 

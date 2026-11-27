@@ -32,9 +32,12 @@ import {
   MAX_MEDIA_PER_POST,
   MAX_VIDEO_BYTES,
   PLATFORM_FORMATS,
+  PRIVACY_OPTIONS,
   PUBLISHER_READY,
   SOCIAL_PLATFORM_LABEL,
+  SOCIAL_PLATFORMS,
   validateTarget,
+  YOUTUBE_TITLE_LIMIT,
   type MediaShape,
   type PublishFormat,
   type SocialPlatformKey,
@@ -43,7 +46,7 @@ import type { AccountMatrixRow } from "@/lib/social/overview";
 import type { PublishState, SerializedMedia, SerializedTarget } from "@/lib/social/state";
 
 /** Paylaşımlar'dan paylaşılabilen platformlar (yayın motoru hazır olanlar). */
-const PLATFORMS = (["instagram", "facebook"] as const).filter((p) => PUBLISHER_READY[p]);
+const PLATFORMS = SOCIAL_PLATFORMS.filter((p) => PUBLISHER_READY[p]);
 
 type Mode = "now" | "schedule";
 
@@ -58,7 +61,9 @@ type Item = {
   durationSec: number | null;
 } & ({ remoteId: string; file?: undefined } | { remoteId?: undefined; file: File });
 
-type PlatformDraft = { format: PublishFormat; captionOverride: string };
+type PlatformDraft = { format: PublishFormat; captionOverride: string; title: string; privacy: string };
+
+const defaultPrivacy = (p: SocialPlatformKey) => PRIVACY_OPTIONS[p]?.[0]?.value ?? "";
 
 type Phase =
   | { kind: "loading" }
@@ -81,8 +86,14 @@ function defaultWhen(): string {
   d.setMinutes(0, 0, 0);
   return toLocalInput(d);
 }
+/**
+ * Varsayılan seçili platformlar: bağlı Meta hesapları. YouTube yalnızca video
+ * aldığından elle seçilir (markada yalnızca YouTube varsa o seçilir).
+ */
 function connectedOf(b: AccountMatrixRow): SocialPlatformKey[] {
-  return PLATFORMS.filter((p) => Boolean(b.accounts[p]));
+  const all = PLATFORMS.filter((p) => Boolean(b.accounts[p]));
+  const meta = all.filter((p) => p === "instagram" || p === "facebook");
+  return meta.length ? meta : all;
 }
 const whenFmt = new Intl.DateTimeFormat("tr-TR", {
   day: "numeric",
@@ -221,7 +232,15 @@ export default function SocialComposer({
         setStatus(p.status === "approved" ? "approved" : "review");
         setDrafts(
           Object.fromEntries(
-            state.targets.map((t) => [t.platform, { format: t.format, captionOverride: t.captionOverride ?? "" }]),
+            state.targets.map((t) => [
+              t.platform,
+              {
+                format: t.format,
+                captionOverride: t.captionOverride ?? "",
+                title: t.title ?? "",
+                privacy: t.privacy ?? defaultPrivacy(t.platform),
+              },
+            ]),
           ),
         );
         setLive(state.targets);
@@ -267,7 +286,11 @@ export default function SocialComposer({
   }
   /** Paylaşımı engelleyen eksikler (medya, açıklama, format kuralları). */
   const publishIssues = [
-    ...new Set(platforms.flatMap((p) => validateTarget({ platform: p, format: formatOf(p) }, shapes, captionOf(p)))),
+    ...new Set(
+      platforms.flatMap((p) =>
+        validateTarget({ platform: p, format: formatOf(p), title: drafts[p]?.title }, shapes, captionOf(p)),
+      ),
+    ),
   ];
   // Şimdi paylaş: her şey tam olmalı. Planla: eksikle kaydedilebilir, ama paylaşılmaz.
   const canSubmit = !working && !locked && blockers.length === 0 && (mode === "schedule" || publishIssues.length === 0);
@@ -311,7 +334,16 @@ export default function SocialComposer({
   }
 
   function patchDraft(p: SocialPlatformKey, patch: Partial<PlatformDraft>) {
-    setDrafts((d) => ({ ...d, [p]: { format: formatOf(p), captionOverride: d[p]?.captionOverride ?? "", ...patch } }));
+    setDrafts((d) => ({
+      ...d,
+      [p]: {
+        format: formatOf(p),
+        captionOverride: d[p]?.captionOverride ?? "",
+        title: d[p]?.title ?? "",
+        privacy: d[p]?.privacy ?? defaultPrivacy(p),
+        ...patch,
+      },
+    }));
   }
 
   /** İçerik → medya (sil / yükle / sırala) → hedefler → (şimdi ise) paylaş. */
@@ -422,6 +454,8 @@ export default function SocialComposer({
               platform: p,
               format: formatOf(p),
               captionOverride: drafts[p]?.captionOverride.trim() || null,
+              title: drafts[p]?.title.trim() || null,
+              privacy: drafts[p]?.privacy || defaultPrivacy(p) || null,
             })),
           }),
         }),
@@ -604,7 +638,7 @@ export default function SocialComposer({
             result
           ) : brands.length === 0 && !editing ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-              Meta hesabı bağlı marka yok. Önce Hesaplar sekmesinden bağlayın.
+              Sosyal hesabı bağlı marka yok. Önce Hesaplar sekmesinden bağlayın.
             </p>
           ) : locked ? (
             <div className="space-y-3">
@@ -767,6 +801,43 @@ export default function SocialComposer({
                           })}
                         </div>
                       </div>
+                      {p === "youtube" ? (
+                        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_11rem]">
+                          <label className="text-xs text-zinc-600">
+                            <span className="flex items-baseline justify-between">
+                              Video başlığı
+                              <span
+                                className={`tabular-nums ${
+                                  (drafts[p]?.title.length ?? 0) > YOUTUBE_TITLE_LIMIT ? "text-rose-600" : "text-zinc-400"
+                                }`}
+                              >
+                                {drafts[p]?.title.length ?? 0} / {YOUTUBE_TITLE_LIMIT}
+                              </span>
+                            </span>
+                            <input
+                              className={`${fieldClass} mt-1 w-full`}
+                              value={drafts[p]?.title ?? ""}
+                              maxLength={YOUTUBE_TITLE_LIMIT + 20}
+                              onChange={(e) => patchDraft(p, { title: e.target.value })}
+                              placeholder="YouTube'da görünecek başlık"
+                            />
+                          </label>
+                          <label className="text-xs text-zinc-600">
+                            Görünürlük
+                            <select
+                              className={`${fieldClass} mt-1 w-full`}
+                              value={drafts[p]?.privacy ?? defaultPrivacy(p)}
+                              onChange={(e) => patchDraft(p, { privacy: e.target.value })}
+                            >
+                              {PRIVACY_OPTIONS.youtube!.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      ) : null}
                       {formatOf(p) === "story" ? (
                         <p className="mt-1.5 text-xs text-zinc-500">Hikâyede açıklama paylaşılmaz; yalnızca tek görsel veya video gider.</p>
                       ) : onlyStory ? null : (

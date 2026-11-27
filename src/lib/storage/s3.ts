@@ -82,6 +82,15 @@ export async function s3Get(key: string): Promise<Buffer | null> {
   }
 }
 
+/** Nesnenin [start, end] (dahil) bayt aralığı — büyük videoları parça parça okumak için. */
+export async function s3GetRange(key: string, start: number, end: number): Promise<Buffer> {
+  const res = await s3().send(
+    new GetObjectCommand({ Bucket: bucket()!, Key: key, Range: `bytes=${start}-${end}` }),
+  );
+  if (!res.Body) throw new Error("S3 boş yanıt");
+  return Buffer.from(await res.Body.transformToByteArray());
+}
+
 export async function s3SignedGetUrl(
   key: string,
   expiresIn: number = S3_SIGNED_URL_TTL,
