@@ -180,6 +180,11 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     select: { id: true, tenantId: true, title: true },
   });
   if (!existing) return NextResponse.json({ error: "İçerik bulunamadı" }, { status: 404 });
+  // Paylaşım sürerken silinirse yükleme yine tamamlanır ama kaydı kaybolur.
+  const busy = await prisma.contentPostTarget.count({ where: { postId: id, status: "publishing" } });
+  if (busy > 0) {
+    return NextResponse.json({ error: "Paylaşım sürüyor; bitince silebilirsiniz." }, { status: 409 });
+  }
   await prisma.contentPost.delete({ where: { id } });
   await audit(session, {
     action: "content_post.delete",

@@ -62,6 +62,12 @@ export const CAPTION_LIMIT: Record<SocialPlatformKey, number> = {
 
 export const YOUTUBE_TITLE_LIMIT = 100;
 
+/** Takvim içeriğinden varsayılan YouTube başlığı: içerik başlığı, yoksa metnin ilk satırı. */
+export function youtubeTitleFrom(title: string | null | undefined, caption: string | null | undefined): string | null {
+  const t = (title?.trim() || caption?.trim().split("\n")[0] || "").replace(/\s+/g, " ").trim();
+  return t ? t.slice(0, YOUTUBE_TITLE_LIMIT) : null;
+}
+
 /** Yükleme sınırları. */
 export const MAX_MEDIA_PER_POST = 35;
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024;

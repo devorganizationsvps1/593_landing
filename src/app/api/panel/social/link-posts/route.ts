@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { audit } from "@/lib/panel/audit";
 import { requirePermissionApi } from "@/lib/panel/staff-auth";
-import { defaultFormat, isSocialPlatform, PUBLISHER_READY, type SocialPlatformKey } from "@/lib/social/formats";
+import {
+  defaultFormat,
+  isSocialPlatform,
+  PUBLISHER_READY,
+  youtubeTitleFrom,
+  type SocialPlatformKey,
+} from "@/lib/social/formats";
 
 export const runtime = "nodejs";
 
@@ -95,6 +101,10 @@ export async function POST(request: Request) {
             platform,
             format: defaultFormat(platform, p.media),
             socialAccountId: accountOf.get(platform)!,
+            // YouTube başlık ister: içeriğin takvimdeki başlığı (yoksa metnin ilk satırı).
+            ...(platform === "youtube"
+              ? { title: youtubeTitleFrom(p.title, p.caption) }
+              : {}),
           },
         });
       }

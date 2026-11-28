@@ -29,6 +29,7 @@ import {
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABEL,
   validateTarget,
+  youtubeTitleFrom,
   type PublishFormat,
   type SocialPlatformKey,
 } from "@/lib/social/formats";
@@ -40,6 +41,9 @@ type TargetDraft = {
   captionOverride: string;
   title: string;
   privacy: string;
+  /** YouTube kapak görseli (yüklenmiş, kayıt bekleyebilir). */
+  thumbKey: string | null;
+  thumbUrl: string | null;
 };
 
 type Upload = { id: string; name: string; progress: number; error: string | null };
@@ -59,8 +63,11 @@ function draftsFrom(state: PublishState): Record<SocialPlatformKey, TargetDraft>
       enabled: Boolean(t),
       format: t?.format ?? defaultFormat(p, state.media),
       captionOverride: t?.captionOverride ?? "",
-      title: t?.title ?? "",
+      // YouTube başlığı boşsa takvimdeki içerik başlığıyla önerilir.
+      title: t?.title ?? (p === "youtube" ? (youtubeTitleFrom(state.post.title, state.post.caption) ?? "") : ""),
       privacy: t?.privacy ?? PRIVACY_OPTIONS[p]?.[0]?.value ?? "",
+      thumbKey: t?.thumbnailKey ?? null,
+      thumbUrl: t?.thumbnailUrl ?? null,
     };
   }
   return out;
@@ -243,6 +250,36 @@ export default function PublishPanel({
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  const thumbInput = useRef<HTMLInputElement>(null);
+
+  /** Kapak hemen yüklenir; hedefe bağlanması "Kaydet" ile olur. */
+  async function uploadThumb(file: File | undefined) {
+    if (thumbInput.current) thumbInput.current.value = "";
+    if (!file) return;
+    setError(null);
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      setError("Kapak JPG, PNG veya WebP olmalı.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Kapak dosyası en fazla 10 MB olabilir.");
+      return;
+    }
+    setBusy("thumb");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/panel/content-posts/${postId}/thumbnail`, { method: "POST", body: fd });
+      const j = (await res.json().catch(() => ({}))) as { key?: string; url?: string; error?: string };
+      if (!res.ok || !j.key || !j.url) throw new Error(j.error || "Kapak yüklenemedi");
+      patchDraft("youtube", { thumbKey: j.key, thumbUrl: j.url });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kapak yüklenemedi");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function removeMedia(m: SerializedMedia) {
     if (!await confirmDialog(`“${m.originalName || "Dosya"}” silinsin mi?`)) return;
     setBusy(`media:${m.id}`);
@@ -297,6 +334,7 @@ export default function PublishPanel({
         captionOverride: drafts[p].captionOverride || null,
         title: drafts[p].title || null,
         privacy: drafts[p].privacy || null,
+        ...(p === "youtube" ? { thumbnailKey: drafts[p].thumbKey } : {}),
       }));
       const res = await fetch(`/api/panel/content-posts/${postId}/publish`, {
         method: "PUT",
@@ -558,6 +596,53 @@ export default function PublishPanel({
                       disabled={!canEdit}
                       onChange={(e) => patchDraft(p, { title: e.target.value })}
                     />
+                  ) : null}
+                  {p === "youtube" && d.format === "video" ? (
+                    <div className="text-xs text-zinc-600 sm:col-span-2">
+                      <p>
+                        Kapak görseli <span className="text-zinc-400">· isteğe bağlı · 16:9, en az 640 px genişlik</span>
+                      </p>
+                      <input
+                        ref={thumbInput}
+                        type="file"
+                        accept={ACCEPTED_IMAGE_TYPES.join(",")}
+                        className="hidden"
+                        onChange={(e) => void uploadThumb(e.target.files?.[0])}
+                      />
+                      <div className="mt-1 flex items-center gap-2">
+                        {d.thumbUrl ? (
+                          <div className="relative aspect-video w-36 overflow-hidden rounded-lg bg-zinc-100">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={d.thumbUrl} alt="Kapak" className="h-full w-full object-cover" />
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                aria-label="Kapağı kaldır"
+                                className="absolute right-1 top-1 rounded-full bg-white/90 p-0.5 text-rose-600"
+                                onClick={() => patchDraft(p, { thumbKey: null, thumbUrl: null })}
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {canEdit ? (
+                          <button
+                            type="button"
+                            disabled={busy === "thumb"}
+                            onClick={() => thumbInput.current?.click()}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 hover:ring-zinc-400 disabled:opacity-50"
+                          >
+                            {busy === "thumb" ? (
+                              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                            ) : (
+                              <Upload className="size-3.5" aria-hidden />
+                            )}
+                            {d.thumbUrl ? "Değiştir" : "Kapak seç"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   ) : null}
                   {PRIVACY_OPTIONS[p] ? (
                     <select

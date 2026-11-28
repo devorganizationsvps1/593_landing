@@ -80,14 +80,15 @@ export async function PUT(request: Request, ctx: Ctx) {
       title: t.title?.trim().slice(0, 100) || null,
       privacy,
       // Kapak yalnızca YouTube normal videoda; Shorts'ta YouTube kullanmıyor.
-      thumbnailKey:
-        t.platform === "youtube" &&
-        t.format === "video" &&
-        typeof t.thumbnailKey === "string" &&
-        t.thumbnailKey.endsWith(".jpg") &&
-        isValidMediaKey(t.thumbnailKey, id)
-          ? t.thumbnailKey
-          : null,
+      // Alan gönderilmezse (ör. takvimdeki panel) mevcut kapak korunur.
+      thumbnailKey: (() => {
+        if (t.platform !== "youtube" || t.format !== "video") return null;
+        const key =
+          t.thumbnailKey === undefined
+            ? (post.targets.find((x) => x.platform === "youtube")?.thumbnailKey ?? null)
+            : t.thumbnailKey;
+        return typeof key === "string" && key.endsWith(".jpg") && isValidMediaKey(key, id) ? key : null;
+      })(),
     });
   }
 

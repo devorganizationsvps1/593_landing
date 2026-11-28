@@ -39,6 +39,7 @@ import {
   SOCIAL_PLATFORMS,
   SOCIAL_PLATFORM_LABEL,
   UNAPPROVED_NOTE,
+  type PublishFormat,
   type SocialPlatformKey,
 } from "@/lib/social/formats";
 import type {
@@ -54,6 +55,37 @@ import type {
 const TZ = "Europe/Istanbul";
 
 type Tab = "upcoming" | "published" | "failed" | "draft" | "accounts";
+
+/** Sekmeye özel zaman filtresi. */
+type When = "" | "late" | "today" | "week" | "7d";
+/** Yaklaşan: onay / otomatik paylaşım durumu. */
+type Approval = "" | "awaiting" | "ready" | "manual";
+
+const WHEN_OPTIONS: Partial<Record<Tab, { value: When; label: string }[]>> = {
+  upcoming: [
+    { value: "late", label: "Gecikmiş" },
+    { value: "today", label: "Bugün" },
+    { value: "week", label: "Bu hafta (7 gün)" },
+  ],
+  published: [
+    { value: "today", label: "Bugün" },
+    { value: "7d", label: "Son 7 gün" },
+  ],
+  failed: [
+    { value: "today", label: "Bugün" },
+    { value: "7d", label: "Son 7 gün" },
+  ],
+  draft: [
+    { value: "late", label: "Saati geçmiş" },
+    { value: "week", label: "Önümüzdeki 7 gün" },
+  ],
+};
+
+const APPROVAL_OPTIONS: { value: Approval; label: string }[] = [
+  { value: "awaiting", label: "Onay bekliyor" },
+  { value: "ready", label: "Otomatik paylaşılacak" },
+  { value: "manual", label: "Otomatik kapalı" },
+];
 
 /** Paylaşımı platformdan silmeyi destekleyen platformlar. */
 const DELETABLE = new Set<SocialPlatformKey>(["instagram", "facebook", "youtube"]);
@@ -199,8 +231,11 @@ export default function SocialPublishingDashboard({
   const [query, setQuery] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [platform, setPlatform] = useState<SocialPlatformKey | "">("");
-  const [todayOnly, setTodayOnly] = useState(false);
-  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [format, setFormat] = useState<PublishFormat | "">("");
+  const [when, setWhen] = useState<When>("");
+  const [approval, setApproval] = useState<Approval>("");
+  /** Hesaplar: bu platformu eksik olan markalar. */
+  const [missing, setMissing] = useState<SocialPlatformKey | "">("");
   /** Meta bağlama penceresi: null = kapalı; tek satır = yalnızca o marka. */
   const [connectRows, setConnectRows] = useState<AccountMatrixRow[] | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -229,37 +264,68 @@ export default function SocialPublishingDashboard({
   const tenants = useMemo(() => {
     const m = new Map<string, string>();
     for (const t of targets) m.set(t.tenantId, t.tenantName);
+    for (const r of matrix) if (r.visible || Object.keys(r.accounts).length > 0) m.set(r.tenantId, r.tenantName);
     return [...m].sort((a, b) => a[1].localeCompare(b[1], "tr"));
+  }, [targets, matrix]);
+
+  /** Listede geçen biçimler — yalnızca var olanlar seçilebilir. */
+  const formats = useMemo(() => {
+    const set = new Set(targets.map((t) => t.format));
+    return (Object.keys(FORMAT_LABEL) as PublishFormat[]).filter((f) => set.has(f));
   }, [targets]);
 
   const q = query.trim().toLocaleLowerCase("tr");
 
+  /** Sekmeden bağımsız filtreler (marka, platform, biçim, arama) — sekme sayıları da bunlara uyar. */
+  const baseRows = useMemo(
+    () =>
+      targets.filter(
+        (t) =>
+          (!tenantId || t.tenantId === tenantId) &&
+          (!platform || t.platform === platform) &&
+          (!format || t.format === format) &&
+          (!q ||
+            [t.postTitle, t.captionPreview, t.tenantName, t.account ?? ""].some((s) =>
+              s.toLocaleLowerCase("tr").includes(q),
+            )),
+      ),
+    [targets, tenantId, platform, format, q],
+  );
+
   const tabCounts = useMemo(() => {
     const c = { upcoming: 0, published: 0, failed: 0, draft: 0 };
-    for (const t of targets) {
+    for (const t of baseRows) {
       if (t.status === "published") c.published++;
       else if (t.draftAt) c.draft++;
       else if (t.status === "failed") c.failed++;
       else c.upcoming++;
     }
     return c;
-  }, [targets]);
+  }, [baseRows]);
 
   const groups = useMemo(() => {
     if (tab === "accounts") return [];
-    const rows = targets.filter(
-      (t) =>
-        inTab(t, tab) &&
-        (!tenantId || t.tenantId === tenantId) &&
-        (!platform || t.platform === platform) &&
-        (!todayOnly || tab !== "upcoming" || dayKey(t.scheduledAt) === today) &&
-        (!q ||
-          [t.postTitle, t.captionPreview, t.tenantName, t.account ?? ""].some((s) =>
-            s.toLocaleLowerCase("tr").includes(q),
-          )),
-    );
+    const week = shiftKey(today, 7);
+    const weekAgo = shiftKey(today, -6);
+    const matchWhen = (t: TargetRow) => {
+      if (!when) return true;
+      const at = tab === "published" ? (t.publishedAt ?? t.scheduledAt) : t.scheduledAt;
+      const key = dayKey(at);
+      if (when === "late") return t.scheduledAt < now && t.status === "pending";
+      if (when === "today") return key === today;
+      if (when === "week") return key >= today && key < week;
+      if (when === "7d") return key >= weekAgo && key <= today;
+      return true;
+    };
+    const matchApproval = (t: TargetRow) => {
+      if (!approval || tab !== "upcoming") return true;
+      if (approval === "manual") return !t.autoPublish;
+      if (approval === "awaiting") return t.autoPublish && !t.approved;
+      return t.autoPublish && t.approved;
+    };
+    const rows = baseRows.filter((t) => inTab(t, tab) && matchWhen(t) && matchApproval(t));
     return groupByPost(rows, tab);
-  }, [targets, tab, tenantId, platform, todayOnly, today, q]);
+  }, [baseRows, tab, when, approval, today, now]);
 
   const days = useMemo(() => {
     const out: { key: string; items: PostGroup[] }[] = [];
@@ -281,10 +347,11 @@ export default function SocialPublishingDashboard({
     () =>
       listed.filter(
         (m) =>
-          (!onlyMissing || !m.accounts.instagram || !m.accounts.facebook) &&
+          (!tenantId || m.tenantId === tenantId) &&
+          (!missing || !m.accounts[missing]) &&
           (!q || m.tenantName.toLocaleLowerCase("tr").includes(q)),
       ),
-    [listed, onlyMissing, q],
+    [listed, tenantId, missing, q],
   );
   /** Kartlarda marka logosu. */
   const brandCover = useMemo(() => new Map(matrix.map((m) => [m.tenantId, m.coverUrl])), [matrix]);
@@ -303,20 +370,24 @@ export default function SocialPublishingDashboard({
     [matrix],
   );
 
-  const listFiltersActive = Boolean(tenantId || platform || todayOnly);
-  const hasActiveFilters = Boolean(q) || (tab === "accounts" ? onlyMissing : listFiltersActive);
+  const listFiltersActive = Boolean(platform || format || when || (tab === "upcoming" && approval));
+  const hasActiveFilters = Boolean(q || tenantId) || (tab === "accounts" ? Boolean(missing) : listFiltersActive);
 
   function clearFilters() {
     setQuery("");
     setTenantId("");
     setPlatform("");
-    setTodayOnly(false);
-    setOnlyMissing(false);
+    setFormat("");
+    setWhen("");
+    setApproval("");
+    setMissing("");
   }
 
-  function goTab(next: Tab, opts: { today?: boolean } = {}) {
+  /** Sekme değişince yalnızca o sekmeye özel filtreler sıfırlanır; marka/platform/biçim korunur. */
+  function goTab(next: Tab, opts: { when?: When } = {}) {
     setTab(next);
-    setTodayOnly(Boolean(opts.today));
+    setWhen(opts.when ?? "");
+    setApproval("");
   }
 
   /** Saati geçmiş onaysız içeriği onaylar — zamanlayıcı bir dakika içinde paylaşır. */
@@ -473,13 +544,13 @@ export default function SocialPublishingDashboard({
               value={counts.dueToday}
               label="bugün"
               title="Bugün paylaşılacak hedefler"
-              onClick={() => goTab("upcoming", { today: true })}
+              onClick={() => goTab("upcoming", { when: "today" })}
             />
             <Stat
               value={counts.published7d}
               label="son 7 gün"
               title="Son 7 günde paylaşılan hedefler"
-              onClick={() => goTab("published")}
+              onClick={() => goTab("published", { when: "7d" })}
             />
             <Stat
               value={counts.failed}
@@ -615,16 +686,22 @@ export default function SocialPublishingDashboard({
             ) : null}
           </label>
 
+          <FilterSelect
+            label="Marka"
+            value={tenantId}
+            onChange={setTenantId}
+            options={tenants.map(([id, name]) => ({ value: id, label: name }))}
+          />
+
           {tab === "accounts" ? (
             <>
-              <button
-                type="button"
-                aria-pressed={onlyMissing}
-                onClick={() => setOnlyMissing((v) => !v)}
-                className={toolChip(onlyMissing, "amber")}
-              >
-                Meta eksik olanlar
-              </button>
+              <FilterSelect
+                label="Eksik hesap"
+                value={missing}
+                onChange={(v) => setMissing(v as SocialPlatformKey | "")}
+                options={ACCOUNT_PLATFORMS.map((p) => ({ value: p, label: `${SOCIAL_PLATFORM_LABEL[p]} bağlı değil` }))}
+                allLabel="Eksik hesap: Hepsi"
+              />
               {canEdit && unconnected.length > 0 ? (
                 <button type="button" onClick={() => setConnectRows(unconnected)} className={toolPrimary}>
                   <Link2 className="size-3.5" aria-hidden />
@@ -634,12 +711,6 @@ export default function SocialPublishingDashboard({
             </>
           ) : (
             <>
-              <FilterSelect
-                label="Marka"
-                value={tenantId}
-                onChange={setTenantId}
-                options={tenants.map(([id, name]) => ({ value: id, label: name }))}
-              />
               <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Platform">
                 {SOCIAL_PLATFORMS.map((p) => {
                   const on = platform === p;
@@ -660,16 +731,30 @@ export default function SocialPublishingDashboard({
                   );
                 })}
               </div>
+              {formats.length > 1 ? (
+                <FilterSelect
+                  label="Biçim"
+                  value={format}
+                  onChange={(v) => setFormat(v as PublishFormat | "")}
+                  options={formats.map((f) => ({ value: f, label: FORMAT_LABEL[f] }))}
+                />
+              ) : null}
+              {WHEN_OPTIONS[tab] ? (
+                <FilterSelect
+                  label="Zaman"
+                  value={when}
+                  onChange={(v) => setWhen(v as When)}
+                  options={WHEN_OPTIONS[tab]!}
+                  allLabel={tab === "published" ? "Zaman: Son 30 gün" : "Zaman: Tümü"}
+                />
+              ) : null}
               {tab === "upcoming" ? (
-                <button
-                  type="button"
-                  aria-pressed={todayOnly}
-                  onClick={() => setTodayOnly((v) => !v)}
-                  className={toolChip(todayOnly, "amber")}
-                >
-                  <Clock className="size-3.5" aria-hidden />
-                  Bugün
-                </button>
+                <FilterSelect
+                  label="Durum"
+                  value={approval}
+                  onChange={(v) => setApproval(v as Approval)}
+                  options={APPROVAL_OPTIONS}
+                />
               ) : null}
             </>
           )}
@@ -686,7 +771,7 @@ export default function SocialPublishingDashboard({
           ) : null}
 
           <span className="ml-auto text-xs tabular-nums text-zinc-500">
-            {tab === "published" ? "Son 30 gün · " : ""}
+            {tab === "published" && !when ? "Son 30 gün · " : ""}
             {resultCount}
           </span>
         </div>
@@ -811,11 +896,14 @@ function FilterSelect({
   value,
   onChange,
   options,
+  allLabel,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: { value: string; label: string }[];
+  /** "Tümü" seçeneğinin metni (varsayılan: "<label>: Tümü"). */
+  allLabel?: string;
 }) {
   const on = Boolean(value);
   return (
@@ -826,7 +914,7 @@ function FilterSelect({
         onChange={(e) => onChange(e.target.value)}
         className={toolSelect(on)}
       >
-        <option value="">{label}: Tümü</option>
+        <option value="">{allLabel ?? `${label}: Tümü`}</option>
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

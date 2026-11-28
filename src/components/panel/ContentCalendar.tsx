@@ -820,7 +820,8 @@ export default function ContentCalendar({
     try {
       const res = await fetch(`/api/panel/content-posts/${draft.id}`, { method: "DELETE" });
       if (!res.ok) {
-        setError("Silinemedi");
+        const j = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(j?.error || "Silinemedi");
         return;
       }
     } catch {
